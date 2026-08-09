@@ -1455,35 +1455,37 @@
 
 				<!-- 4. SYSTEM SETTINGS VIEW PANE -->
 				<div class="view-pane" id="view-settings" style="overflow-y: auto;">
-					<!-- Provider config card -->
-					<div class="card" id="panel-groq">
+					<!-- Unified AI Provider & Model Configuration -->
+					<div class="card">
 						<div class="card-header" style="cursor: pointer; display: flex; justify-content: space-between; align-items: center; user-select: none;">
-							<div class="card-title" style="margin-bottom: 0;">Groq Configuration</div>
+							<div class="card-title" style="margin-bottom: 0;">AI Provider Settings</div>
 							<span class="accordion-chevron" style="font-size: 8px; color: var(--text-secondary);">▼</span>
 						</div>
 						<div class="card-body" style="display: block; margin-top: 8px;">
-							<div class="form-group">
-								<label for="api-key">Groq API Key</label>
+							<div class="form-group" style="margin-bottom: 12px;">
+								<label for="provider-select">AI Provider</label>
+								<select id="provider-select">
+									<option value="groq">Groq (Cloud)</option>
+									<option value="ollama">Ollama (Local)</option>
+									<option value="custom">llama.cpp / Custom OpenAI Endpoint</option>
+								</select>
+							</div>
+
+							<div class="form-group" id="url-config-group" style="display: none; margin-bottom: 12px;">
+								<label for="api-url">Base URL</label>
+								<input type="text" id="api-url" placeholder="http://localhost:11434" />
+							</div>
+
+							<div class="form-group" id="key-config-group" style="margin-bottom: 12px;">
+								<label for="api-key">API Key</label>
 								<div class="input-container">
-									<input type="password" id="api-key" placeholder="Enter gsk_..." />
+									<input type="password" id="api-key" placeholder="Enter API key..." />
 									<span class="eye-icon" id="toggle-key-visibility" style="position: absolute; right: 10px; top: 50%; transform: translateY(-50%); cursor: pointer; font-size: 9.5px; font-weight: 700; color: var(--text-secondary); user-select: none;">SHOW</span>
 								</div>
 							</div>
-							<div class="btn-group" style="display: flex; gap: 6px; margin-top: 10px;">
-								<button class="btn btn-outline" id="save-key-btn" style="flex: 1;">Save Key</button>
-								<button class="btn btn-danger" id="remove-key-btn" style="flex: 1;">Remove</button>
-							</div>
-						</div>
-					</div>
 
-					<!-- Model selection card -->
-					<div class="card">
-						<div class="card-header" style="cursor: pointer; display: flex; justify-content: space-between; align-items: center; user-select: none;">
-							<div class="card-title" style="margin-bottom: 0;">Model Selector</div>
-							<span class="accordion-chevron" style="font-size: 8px; color: var(--text-secondary);">▼</span>
-						</div>
-						<div class="card-body" style="display: block; margin-top: 8px;">
-							<div class="form-group">
+							<div class="form-group" id="model-select-group" style="margin-bottom: 12px;">
+								<label for="model-select">Model</label>
 								<select id="model-select">
 									<option value="llama-3.3-70b-versatile">Llama 3.3 70B (Recommended)</option>
 									<option value="llama-3.1-8b-instant">Llama 3.1 8B (Fast)</option>
@@ -1492,6 +1494,16 @@
 									<option value="deepseek-r1-distill-qwen-32b">DeepSeek R1 32B (Reasoning)</option>
 									<option value="deepseek-r1-distill-llama-70b">DeepSeek R1 70B (Reasoning)</option>
 								</select>
+							</div>
+
+							<div class="form-group" id="model-input-group" style="display: none; margin-bottom: 12px;">
+								<label for="model-input">Model Name</label>
+								<input type="text" id="model-input" placeholder="e.g. qwen2.5:7b, llama3..." />
+							</div>
+
+							<div class="btn-group" style="display: flex; gap: 6px; margin-top: 14px;">
+								<button class="btn btn-outline" id="save-key-btn" style="flex: 1;">Save Settings</button>
+								<button class="btn btn-danger" id="remove-key-btn" style="flex: 1;">Clear Key</button>
 							</div>
 						</div>
 					</div>
@@ -1521,6 +1533,6 @@
 	<!-- System libraries -->
 	<script type="text/javascript" src="./../v1/plugins.js"></script>
 	<script type="text/javascript" src="./../v1/plugins-ui.js"></script>
-	<script src="plugin.js?v=1786248781"></script>
+	<script src="plugin.js?v=1786249476"></script>
 </body>
 </html>

@@ -21,6 +21,13 @@
 	const removeKeyBtn = document.getElementById('remove-key-btn');
 
 	const modelSelect = document.getElementById('model-select');
+	const providerSelect = document.getElementById('provider-select');
+	const apiUrlInput = document.getElementById('api-url');
+	const modelInput = document.getElementById('model-input');
+	const urlConfigGroup = document.getElementById('url-config-group');
+	const keyConfigGroup = document.getElementById('key-config-group');
+	const modelSelectGroup = document.getElementById('model-select-group');
+	const modelInputGroup = document.getElementById('model-input-group');
 	const modelCostBadge = document.getElementById('model-cost-badge');
 	const promptInput = document.getElementById('prompt-input');
 	const executeBtn = document.getElementById('execute-btn');
@@ -1420,21 +1427,71 @@ ${JSON.stringify(lastExecutionDebugData.parsedPlans || [], null, 2)}
 	};
 
 	// Initialize active provider select options
+	// Helper to adjust settings fields visibility based on selected provider
+	function adjustSettingsFieldsVisibility() {
+		const provider = providerSelect.value;
+		if (provider === 'groq') {
+			urlConfigGroup.style.display = 'none';
+			keyConfigGroup.style.display = 'block';
+			modelSelectGroup.style.display = 'block';
+			modelInputGroup.style.display = 'none';
+			if (modelCostBadge) modelCostBadge.style.display = 'inline-block';
+			updateCostBadge();
+		} else if (provider === 'ollama') {
+			urlConfigGroup.style.display = 'block';
+			keyConfigGroup.style.display = 'none';
+			modelSelectGroup.style.display = 'none';
+			modelInputGroup.style.display = 'block';
+			if (modelCostBadge) modelCostBadge.style.display = 'none';
+			if (!apiUrlInput.value.trim()) {
+				apiUrlInput.value = 'http://localhost:11434';
+			}
+			if (!modelInput.value.trim()) {
+				modelInput.value = 'llama3';
+			}
+		} else if (provider === 'custom') {
+			urlConfigGroup.style.display = 'block';
+			keyConfigGroup.style.display = 'block';
+			modelSelectGroup.style.display = 'none';
+			modelInputGroup.style.display = 'block';
+			if (modelCostBadge) modelCostBadge.style.display = 'none';
+			if (!apiUrlInput.value.trim()) {
+				apiUrlInput.value = 'http://localhost:8080/v1';
+			}
+			if (!modelInput.value.trim()) {
+				modelInput.value = 'model';
+			}
+		}
+	}
+
+	// Initialize active provider select options
 	function initializeProvider() {
 		// Populate Groq models
 		modelSelect.innerHTML = providerModels.groq.map(m => `<option value="${m.value}">${m.text}</option>`).join('');
 		
-		const savedGroqModel = localStorage.getItem('groq_copilot_model') || 'llama-3.3-70b-versatile';
-		modelSelect.value = savedGroqModel;
-		localStorage.setItem('groq_copilot_model', savedGroqModel);
+		const provider = localStorage.getItem('onescript_provider') || 'groq';
+		providerSelect.value = provider;
 		
-		// Render dynamic cost indicator badge
-		updateCostBadge();
+		const model = localStorage.getItem('onescript_model') || localStorage.getItem('groq_copilot_model') || 'llama-3.3-70b-versatile';
+		
+		if (provider === 'groq') {
+			modelSelect.value = model;
+		} else {
+			modelInput.value = model;
+		}
+
+		const apiUrl = localStorage.getItem('onescript_api_url') || '';
+		apiUrlInput.value = apiUrl;
+		
+		adjustSettingsFieldsVisibility();
 	}
 
 	// Update Dynamic Model Relative Cost Badge
 	function updateCostBadge() {
-		if (!modelCostBadge || !modelSelect) return;
+		if (!modelCostBadge || !modelSelect || providerSelect.value !== 'groq') {
+			if (modelCostBadge) modelCostBadge.style.display = 'none';
+			return;
+		}
 		
 		const currentModel = modelSelect.value;
 		const models = providerModels.groq;
@@ -1447,17 +1504,14 @@ ${JSON.stringify(lastExecutionDebugData.parsedPlans || [], null, 2)}
 			
 			// Dynamic color schemes (Tokyo Night Tailored HSL color tones)
 			if (costVal < 0.3) {
-				// Green (Ultra efficient)
 				modelCostBadge.style.color = '#10b981';
 				modelCostBadge.style.borderColor = 'rgba(16, 185, 129, 0.3)';
 				modelCostBadge.style.background = 'rgba(16, 185, 129, 0.1)';
 			} else if (costVal <= 1.0) {
-				// Orange (Medium resource weight)
 				modelCostBadge.style.color = '#f59e0b';
 				modelCostBadge.style.borderColor = 'rgba(245, 158, 11, 0.3)';
 				modelCostBadge.style.background = 'rgba(245, 158, 11, 0.1)';
 			} else {
-				// Coral/Red (Flagship/Premium engines)
 				modelCostBadge.style.color = '#f43f5e';
 				modelCostBadge.style.borderColor = 'rgba(244, 63, 94, 0.3)';
 				modelCostBadge.style.background = 'rgba(244, 63, 94, 0.1)';
@@ -1469,37 +1523,61 @@ ${JSON.stringify(lastExecutionDebugData.parsedPlans || [], null, 2)}
 
 	// Load Saved Settings from localStorage
 	function loadSettings() {
-		const savedKey = localStorage.getItem('groq_copilot_key');
-
+		const savedKey = localStorage.getItem('onescript_api_key') || localStorage.getItem('groq_copilot_key');
 		if (savedKey) {
 			apiKeyInput.value = savedKey;
 		}
-
 		initializeProvider();
 		log('OneScript settings loaded securely.', 'success');
 	}
 
-	// Save API Key Actions
+	// Save Settings Actions
 	saveKeyBtn.addEventListener('click', () => {
+		const provider = providerSelect.value;
 		const key = apiKeyInput.value.trim();
-		if (!key) {
-			log('Error: Key cannot be empty.', 'error');
+		const url = apiUrlInput.value.trim();
+		const model = provider === 'groq' ? modelSelect.value : modelInput.value.trim();
+		
+		if (provider === 'groq' && !key) {
+			log('Error: Groq API Key cannot be empty.', 'error');
 			return;
 		}
-		localStorage.setItem('groq_copilot_key', key);
-		log('Groq API Key saved successfully!', 'success');
+		if (provider === 'custom' && !url) {
+			log('Error: Custom provider requires a Base URL.', 'error');
+			return;
+		}
+		if (provider === 'ollama' && !url) {
+			log('Error: Ollama provider requires a Base URL.', 'error');
+			return;
+		}
+		
+		localStorage.setItem('onescript_provider', provider);
+		localStorage.setItem('onescript_api_key', key);
+		localStorage.setItem('groq_copilot_key', key); // backward compatibility
+		localStorage.setItem('onescript_api_url', url);
+		localStorage.setItem('onescript_model', model);
+		localStorage.setItem('groq_copilot_model', model); // backward compatibility
+		
+		log('AI settings saved successfully!', 'success');
 		tabPrompt.click(); // Switch back to editor tab
 	});
 
-	// Remove API Key Actions
+	// Remove/Clear Key Actions
 	removeKeyBtn.addEventListener('click', () => {
+		localStorage.removeItem('onescript_api_key');
 		localStorage.removeItem('groq_copilot_key');
 		apiKeyInput.value = '';
-		log('Groq API Key removed from local storage.', 'warning');
+		log('API Key removed.', 'warning');
+	});
+
+	// Switch fields visibility on provider change
+	providerSelect.addEventListener('change', () => {
+		adjustSettingsFieldsVisibility();
 	});
 
 	// Save Model Choice on select and update cost indicator
 	modelSelect.addEventListener('change', () => {
+		localStorage.setItem('onescript_model', modelSelect.value);
 		localStorage.setItem('groq_copilot_model', modelSelect.value);
 		log(`Model switched to Groq: ${modelSelect.value}`, 'info');
 		updateCostBadge();
@@ -2203,10 +2281,11 @@ ${JSON.stringify(lastExecutionDebugData.parsedPlans || [], null, 2)}
 
 	// Click run button (Refactored Intent-routed Context-aware Pipeline)
 	executeBtn.addEventListener('click', async () => {
-		const hasToken = localStorage.getItem('groq_copilot_key');
+		const provider = localStorage.getItem('onescript_provider') || 'groq';
+		const hasToken = localStorage.getItem('onescript_api_key') || localStorage.getItem('groq_copilot_key');
 		const prompt = promptInput.value.trim();
 
-		if (!hasToken) {
+		if (provider === 'groq' && !hasToken) {
 			log('Error: Groq API Key is not configured. Add it in Settings.', 'error');
 			tabSettings.click();
 			return;
@@ -2335,37 +2414,97 @@ ${JSON.stringify(lastExecutionDebugData.parsedPlans || [], null, 2)}
 
 			setStepperStep(1, "done", `Compacted ${totalElements} elements`);
 			
-			const activeModel = localStorage.getItem('groq_copilot_model') || 'llama-3.3-70b-versatile';
-			setStepperStep(2, "running", `Querying planner on model [${activeModel}]...`);
+			let iteration = 0;
+			const maxIterations = 5;
+			let history = [];
+			let isDone = false;
+			let modifications = [];
+			proposedChanges = [];
 
-			log(`Contacting Groq API using model: ${activeModel}...`, 'info');
-			lastExecutionDebugData.status = "Running (Querying LLM)...";
-			if (typeof updateDebugViewer === 'function') updateDebugViewer();
+			setStepperStep(2, "running", "Querying agent planner (Iteration 1)...");
 			
-			// LAYER 3 & 4: Planner LLM with rule injection
-			const aiResponse = await queryPlannerLLM(cachedDocData, prompt, intent);
-			lastExecutionDebugData.rawResponse = aiResponse;
-			if (typeof updateDebugViewer === 'function') updateDebugViewer();
+			while (iteration < maxIterations && !isDone) {
+				iteration++;
+				const activeModel = localStorage.getItem('onescript_model') || localStorage.getItem('groq_copilot_model') || 'llama-3.3-70b-versatile';
+				log(`Querying Planner LLM [${activeModel}] (Iteration ${iteration})...`, 'info');
+				setStepperStep(2, "running", `Querying agent planner (Iteration ${iteration})...`);
+				
+				const aiResponse = await queryPlannerLLM(cachedDocData, prompt, intent, history);
+				lastExecutionDebugData.rawResponse = aiResponse;
+				if (typeof updateDebugViewer === 'function') updateDebugViewer();
+				
+				let parsedRes;
+				try {
+					let clean = aiResponse.trim();
+					if (clean.startsWith('```')) {
+						clean = clean.replace(/^```json/, '').replace(/^```/, '').replace(/```$/, '').trim();
+					}
+					parsedRes = JSON.parse(clean);
+				} catch(e) {
+					log(`Failed to parse agent JSON: ${e.message}`, 'error');
+					throw new Error("Could not parse a valid JSON action script from the agent's response.");
+				}
+				
+				const thought = parsedRes.thought || "Thinking...";
+				const stepPlans = parsedRes.plans || [];
+				isDone = !!parsedRes.done;
+				
+				log(`Agent Thought (Iteration ${iteration}): "${thought}"`, 'info');
+				setStepperStep(2, "running", `Thought: ${thought.substring(0, 30)}...`);
+				
+				if (isDone || stepPlans.length === 0) {
+					log(`Agent completed all actions. Terminating loop.`, 'success');
+					break;
+				}
+				
+				log(`Agent proposed ${stepPlans.length} actions in Iteration ${iteration}.`, 'info');
+				setStepperStep(3, "running", `Executing step ${iteration} (${stepPlans.length} actions)...`);
+				
+				isEditingAutonomously = true;
+				const outcomes = await executeSingleStepEdits(stepPlans, modifications);
+				isEditingAutonomously = false;
+				
+				// Record step in history
+				history.push({
+					iteration: iteration,
+					thought: thought,
+					plans: stepPlans,
+					outcomes: outcomes
+				});
+				
+				proposedChanges = proposedChanges.concat(stepPlans);
+				
+				// Re-serialize content for next iteration step to let the agent inspect actual layout
+				const docJSON = await serializeActiveContent(serializationMode);
+				cachedDocData = parseSerializedData(docJSON);
+				
+				await new Promise(r => setTimeout(r, 200));
+			}
 			
-			log('Received secure Action Plan from Groq.', 'success');
+			setStepperStep(2, "done", `Completed thinking loop in ${iteration} steps.`);
 			
-			proposedChanges = parseAIResponse(aiResponse);
-			lastExecutionDebugData.parsedPlans = proposedChanges;
-			
-			if (!proposedChanges || proposedChanges.length === 0) {
+			if (proposedChanges.length === 0) {
 				log('Analysis complete: No logical changes suggested for this request.', 'warning');
-				setStepperStep(2, "done", "No edits needed");
-				setStepperStep(3, "done", "Finished");
+				setStepperStep(3, "done", "No edits needed");
 				activeAiMessageBody.innerText = 'No edits needed for this request.';
 				lastExecutionDebugData.status = "No changes suggested.";
 			} else {
-				log(`Successfully decoded ${proposedChanges.length} logical action steps.`, 'success');
-				setStepperStep(2, "done", `Generated ${proposedChanges.length} actions`);
-				setStepperStep(3, "running", "Executing edits sequentially...");
-				lastExecutionDebugData.status = "Executing plan live on document...";
-				isEditingAutonomously = true;
-				log('Executing autonomous editing workflow immediately on document...', 'info');
-				executeSequentialEdits(proposedChanges, activeAiMessageBody);
+				log(`Agent loop completed successfully. Total actions executed: ${proposedChanges.length}`, 'success');
+				setStepperStep(3, "done", `Applied ${proposedChanges.length} edits`);
+				
+				executeBtn.disabled = false;
+				lastInternalQueryTime = Date.now();
+				appliedChangesCount = proposedChanges.length;
+				undoAiBtn.style.display = 'inline-flex';
+				
+				renderChatPreview(activeAiMessageBody, proposedChanges, true);
+				
+				lastExecutionDebugData.status = "Success (Iterative agent loop executed and verified successfully!)";
+				if (typeof updateDebugViewer === 'function') updateDebugViewer();
+				
+				setTimeout(() => {
+					refreshDocStructureView();
+				}, 200);
 			}
 			if (typeof updateDebugViewer === 'function') updateDebugViewer();
 
@@ -2586,11 +2725,7 @@ Example response: {"intent": "rewrite"}`;
 		} catch (e) {
 			log(`Intent routing error: ${e.message}. Defaulting to "rewrite".`, 'warning');
 		}
-		return INTENTS.REWRITE;
-	}
-
-	// LAYER 3 & 4: Planner LLM Layer with Rule Injection
-	async function queryPlannerLLM(docData, prompt, intent) {
+		return INTENTS.RE	async function queryPlannerLLM(docData, prompt, intent, history = []) {
 		const ruleset = RULES[intent] || RULES.rewrite;
 		
 		var templatesContext = "";
@@ -2598,28 +2733,22 @@ Example response: {"intent": "rewrite"}`;
 			templatesContext = "\n\nREFERENCE DESIGN TEMPLATES (Use these guidelines/defaults to match styles appropriately):\n" + JSON.stringify(referenceTemplates.templates, null, 2);
 		}
 
-		const systemMessage = `You are a professional document planner assistant. Your job is to analyze the provided document context and user request, and generate a high-level logical Action Plan.
+		const systemMessage = `You are an autonomous document editor agent operating in an iterative "think, apply, check, rethink" loop.
+Your task is to analyze the document context, the user's request, and the history of actions applied so far, and determine the single next logical action step to bring the document closer to the user's goal.
+
+In each iteration, you must output a valid JSON containing:
+1. "thought": A detailed explanation of your analysis, what needs to be changed next, and why.
+2. "plans": An array of one or more standard plans representing the next immediate changes to apply.
+3. "done": A boolean flag. Set this to true ONLY when all parts of the user request have been fully completed.
 
 You must NEVER generate OnlyOffice API commands directly (like Select(), AddElement(), etc.).
-You must ONLY output valid JSON containing a single "plans" key holding an array of high-level action objects.
-
-CRITICAL FORMATTING & ACTION RULES:
-1. You MUST ONLY use the allowed actions: "rewrite", "change_font", "change_color", "create_paragraph", "delete_paragraph", "paste_html", "make_list", "change_indent", "table_action", "change_page". Do NOT invent or use other actions like "move_section", "rename_section", "move_paragraph", etc.
-2. To move or reorganize a section, use a sequence of "delete_paragraph" actions for the original paragraphs, and "paste_html" or "create_paragraph" actions to recreate/insert them at the destination index.
-3. When creating/inserting new paragraphs or sections, you MUST style them explicitly (via properties like fontName, fontSize, color, bold, alignment, spacing) to match the surrounding paragraphs in the document context. Do not leave styling default/blank.
-4. To format, highlight, color, bold, or italicize specific words or phrases (rather than the entire paragraph), you MUST use the "rewrite" action for that paragraph and wrap the targeted words in HTML tags inside the "newText" property (e.g., use <mark>IEEE</mark> to highlight the word IEEE, <b>word</b> for bold, <i>word</i> for italic, or <span style="background-color:yellow;">word</span>). Do not use paragraph-level properties if you only want to style specific words, as that would format the entire paragraph text.
-
-CRITICAL CARET/CURSOR ANCHORING RULES:
-1. If the user request asks to add, insert, generate, or create content (such as paragraphs, headings, lists, or tables) and a valid "cursorIndex" (>= 0) is specified in the document metadata under "metadata.cursorIndex", you MUST default to inserting/creating the content directly at or after the "cursorIndex" (i.e., targetIndex = cursorIndex).
-2. If the user explicitly asks to put content "where the mouse is", "where the cursor is", "under the cursor", "at the cursor", "at my selection", or similar, you MUST target the "cursorIndex" for the insertion action.
-3. Only override this behavior if the user specifies an explicit alternative location (e.g., "in last of the document" or "at the very beginning").
-
-Every plan action must follow this exact structure:
+You must ONLY output valid JSON matching this schema:
 {
+  "thought": "A detailed explanation of the analysis and next edits...",
   "plans": [
     {
       "action": "rewrite" | "change_font" | "change_color" | "create_paragraph" | "delete_paragraph" | "paste_html" | "make_list" | "change_indent" | "table_action" | "change_page",
-      "targetIndex": 5, // index of target paragraph or table, or -1 for document/page layout actions
+      "targetIndex": 5, // index of target paragraph or table, or -1 for global/selection layout actions
       "subAction": "create" | "add_row" | "add_column" | "delete_row" | "delete_column" | "merge_cells" | "cell_shading" | "cell_borders" | "set_cell_text", // ONLY for "table_action"
       "properties": {
         "newText": "Rewritten or newly created plain text here...",
@@ -2674,8 +2803,21 @@ Every plan action must follow this exact structure:
         "cellData": [["header1", "header2"], ["val1", "val2"]] // 2D array of strings to populate table cells directly on subAction 'create'
       }
     }
-  ]
+  ],
+  "done": false // Set to true ONLY when the user's request has been fully completed.
 }
+
+CRITICAL FORMATTING & ACTION RULES:
+1. You MUST ONLY use the allowed actions: "rewrite", "change_font", "change_color", "create_paragraph", "delete_paragraph", "paste_html", "make_list", "change_indent", "table_action", "change_page". Do NOT invent or use other actions like "move_section", "rename_section", "move_paragraph", etc.
+2. To move or reorganize a section, use a sequence of "delete_paragraph" actions for the original paragraphs, and "paste_html" or "create_paragraph" actions to recreate/insert them at the destination index.
+3. When creating/inserting new paragraphs or sections, you MUST style them explicitly (via properties like fontName, fontSize, color, bold, alignment, spacing) to match the surrounding paragraphs in the document context. Do not leave styling default/blank.
+4. To format, highlight, color, bold, or italicize specific words or phrases (rather than the entire paragraph), you MUST use the "rewrite" action for that paragraph and wrap the targeted words in HTML tags inside the "newText" property (e.g., use <mark>IEEE</mark> to highlight the word IEEE, <b>word</b> for bold, <i>word</i> for italic, or <span style="background-color:yellow;">word</span>). Do not use paragraph-level properties if you only want to style specific words, as that would format the entire paragraph text.
+
+CRITICAL CARET/CURSOR ANCHORING RULES:
+1. If the user request asks to add, insert, generate, or create content (such as paragraphs, headings, lists, or tables) and a valid "cursorIndex" (>= 0) is specified in the document metadata under "metadata.cursorIndex", you MUST default to inserting/creating the content directly at or after the "cursorIndex" (i.e., targetIndex = cursorIndex).
+2. If the user explicitly asks to put content "where the mouse is", "where the cursor is", "under the cursor", "at the cursor", "at my selection", or similar, you MUST target the "cursorIndex" for the insertion action.
+3. Only override this behavior if the user specifies an explicit alternative location (e.g., "in last of the document" or "at the very beginning").
+
 ${templatesContext}
 
 Specific rules for this intent [${intent.toUpperCase()}]:
@@ -2683,8 +2825,14 @@ ${ruleset.instructions}
 
 Return valid JSON only. Do not include markdown code block formatting (like \`\`\`json).`;
 
+		const historyText = history.length > 0 
+			? `HISTORY OF ACTIONS EXECUTED SO FAR IN THIS SESSION:\n${JSON.stringify(history, null, 2)}` 
+			: "HISTORY OF ACTIONS EXECUTED SO FAR IN THIS SESSION:\nNo actions executed yet. This is the first iteration.";
+
 		const userMessage = `Current Document Context (${docData.targetMode} mode):
 ${JSON.stringify(docData, null, 2)}
+
+${historyText}
 
 User Request:
 "${prompt}"`;
@@ -3894,11 +4042,42 @@ User Request:
 		const timeoutId = setTimeout(() => controller.abort(), 25000); // 25 seconds timeout
 
 		try {
-			const apiKey = localStorage.getItem('groq_copilot_key');
-			const model = localStorage.getItem('groq_copilot_model') || 'llama-3.3-70b-versatile';
+			const provider = localStorage.getItem('onescript_provider') || 'groq';
+			let apiKey = localStorage.getItem('onescript_api_key') || localStorage.getItem('groq_copilot_key') || '';
+			let model = localStorage.getItem('onescript_model') || localStorage.getItem('groq_copilot_model') || 'llama-3.3-70b-versatile';
+			let apiUrl = localStorage.getItem('onescript_api_url') || '';
 			
-			if (!apiKey) {
-				throw new Error("Groq API Key is not configured. Add it in Settings.");
+			let fetchUrl = '';
+			let headers = {
+				'Content-Type': 'application/json'
+			};
+			
+			if (provider === 'groq') {
+				if (!apiKey) {
+					throw new Error("Groq API Key is not configured. Add it in Settings.");
+				}
+				fetchUrl = 'https://api.groq.com/openai/v1/chat/completions';
+				headers['Authorization'] = `Bearer ${apiKey}`;
+			} else if (provider === 'ollama') {
+				let url = apiUrl.trim() || 'http://localhost:11434';
+				if (!url.endsWith('/chat/completions')) {
+					if (url.endsWith('/')) url = url.substring(0, url.length - 1);
+					if (!url.endsWith('/v1')) {
+						url += '/v1';
+					}
+					url += '/chat/completions';
+				}
+				fetchUrl = url;
+			} else if (provider === 'custom') {
+				let url = apiUrl.trim() || 'http://localhost:8080/v1';
+				if (!url.endsWith('/chat/completions')) {
+					if (url.endsWith('/')) url = url.substring(0, url.length - 1);
+					url += '/chat/completions';
+				}
+				fetchUrl = url;
+				if (apiKey) {
+					headers['Authorization'] = `Bearer ${apiKey}`;
+				}
 			}
 			
 			const requestBody = {
@@ -3911,12 +4090,9 @@ User Request:
 				requestBody.response_format = { type: 'json_object' };
 			}
 			
-			const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+			const response = await fetch(fetchUrl, {
 				method: 'POST',
-				headers: {
-					'Authorization': `Bearer ${apiKey}`,
-					'Content-Type': 'application/json'
-				},
+				headers: headers,
 				body: JSON.stringify(requestBody),
 				signal: controller.signal
 			});
