@@ -1473,7 +1473,10 @@
 
 							<div class="form-group" id="url-config-group" style="display: none; margin-bottom: 12px;">
 								<label for="api-url">Base URL</label>
-								<input type="text" id="api-url" placeholder="http://localhost:11434" />
+								<div style="display: flex; gap: 6px; align-items: center;">
+									<input type="text" id="api-url" placeholder="http://localhost:11434" style="flex: 1; min-width: 0;" />
+									<button class="btn btn-outline" id="load-models-btn" style="width: auto; padding: 0 10px; font-size: 10px; flex-shrink: 0; white-space: nowrap; height: 28px;">Load Models</button>
+								</div>
 							</div>
 
 							<div class="form-group" id="key-config-group" style="margin-bottom: 12px;">
@@ -1496,9 +1499,18 @@
 								</select>
 							</div>
 
+							<div class="form-group" id="local-model-select-group" style="display: none; margin-bottom: 12px;">
+								<label for="local-model-select">Available Models</label>
+								<select id="local-model-select">
+									<!-- Dynamically populated from Ollama/llama.cpp -->
+								</select>
+								<span id="toggle-manual-model" style="font-size: 9px; color: var(--accent, #3b82f6); cursor: pointer; text-decoration: underline; margin-top: 4px; display: inline-block;">Or enter model name manually</span>
+							</div>
+
 							<div class="form-group" id="model-input-group" style="display: none; margin-bottom: 12px;">
 								<label for="model-input">Model Name</label>
 								<input type="text" id="model-input" placeholder="e.g. qwen2.5:7b, llama3..." />
+								<span id="toggle-dropdown-model" style="display: none; font-size: 9px; color: var(--accent, #3b82f6); cursor: pointer; text-decoration: underline; margin-top: 4px;">Back to loaded models dropdown</span>
 							</div>
 
 							<div class="btn-group" style="display: flex; gap: 6px; margin-top: 14px;">
@@ -1533,6 +1545,6 @@
 	<!-- System libraries -->
 	<script type="text/javascript" src="./../v1/plugins.js"></script>
 	<script type="text/javascript" src="./../v1/plugins-ui.js"></script>
-	<script src="plugin.js?v=1786249476"></script>
+	<script src="plugin.js?v=1786249826"></script>
 </body>
 </html>

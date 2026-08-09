@@ -28,6 +28,11 @@
 	const keyConfigGroup = document.getElementById('key-config-group');
 	const modelSelectGroup = document.getElementById('model-select-group');
 	const modelInputGroup = document.getElementById('model-input-group');
+	const loadModelsBtn = document.getElementById('load-models-btn');
+	const localModelSelectGroup = document.getElementById('local-model-select-group');
+	const localModelSelect = document.getElementById('local-model-select');
+	const toggleManualModel = document.getElementById('toggle-manual-model');
+	const toggleDropdownModel = document.getElementById('toggle-dropdown-model');
 	const modelCostBadge = document.getElementById('model-cost-badge');
 	const promptInput = document.getElementById('prompt-input');
 	const executeBtn = document.getElementById('execute-btn');
@@ -1434,32 +1439,53 @@ ${JSON.stringify(lastExecutionDebugData.parsedPlans || [], null, 2)}
 			urlConfigGroup.style.display = 'none';
 			keyConfigGroup.style.display = 'block';
 			modelSelectGroup.style.display = 'block';
+			localModelSelectGroup.style.display = 'none';
 			modelInputGroup.style.display = 'none';
 			if (modelCostBadge) modelCostBadge.style.display = 'inline-block';
 			updateCostBadge();
-		} else if (provider === 'ollama') {
+		} else {
 			urlConfigGroup.style.display = 'block';
-			keyConfigGroup.style.display = 'none';
+			keyConfigGroup.style.display = provider === 'custom' ? 'block' : 'none';
 			modelSelectGroup.style.display = 'none';
-			modelInputGroup.style.display = 'block';
 			if (modelCostBadge) modelCostBadge.style.display = 'none';
+			
+			// Load dynamic cached local models
+			const cachedStr = localStorage.getItem('onescript_fetched_models');
+			const forceManual = localStorage.getItem('onescript_force_manual_model') === 'true';
+			
+			if (cachedStr && !forceManual) {
+				try {
+					const modelNames = JSON.parse(cachedStr);
+					if (Array.isArray(modelNames) && modelNames.length > 0) {
+						localModelSelect.innerHTML = modelNames.map(name => `<option value="${name}">${name}</option>`).join('');
+						const savedModel = localStorage.getItem('onescript_model') || modelNames[0];
+						localModelSelect.value = modelNames.includes(savedModel) ? savedModel : modelNames[0];
+						
+						localModelSelectGroup.style.display = 'block';
+						modelInputGroup.style.display = 'none';
+					} else {
+						localModelSelectGroup.style.display = 'none';
+						modelInputGroup.style.display = 'block';
+					}
+				} catch(e) {
+					localModelSelectGroup.style.display = 'none';
+					modelInputGroup.style.display = 'block';
+				}
+			} else {
+				localModelSelectGroup.style.display = 'none';
+				modelInputGroup.style.display = 'block';
+				if (forceManual && cachedStr) {
+					toggleDropdownModel.style.display = 'inline-block';
+				} else {
+					toggleDropdownModel.style.display = 'none';
+				}
+			}
+			
 			if (!apiUrlInput.value.trim()) {
-				apiUrlInput.value = 'http://localhost:11434';
+				apiUrlInput.value = provider === 'ollama' ? 'http://localhost:11434' : 'http://localhost:8080/v1';
 			}
 			if (!modelInput.value.trim()) {
-				modelInput.value = 'llama3';
-			}
-		} else if (provider === 'custom') {
-			urlConfigGroup.style.display = 'block';
-			keyConfigGroup.style.display = 'block';
-			modelSelectGroup.style.display = 'none';
-			modelInputGroup.style.display = 'block';
-			if (modelCostBadge) modelCostBadge.style.display = 'none';
-			if (!apiUrlInput.value.trim()) {
-				apiUrlInput.value = 'http://localhost:8080/v1';
-			}
-			if (!modelInput.value.trim()) {
-				modelInput.value = 'model';
+				modelInput.value = provider === 'ollama' ? 'llama3' : 'model';
 			}
 		}
 	}
@@ -1521,6 +1547,63 @@ ${JSON.stringify(lastExecutionDebugData.parsedPlans || [], null, 2)}
 		}
 	}
 
+	// Fetch models from Ollama or llama.cpp/Custom OpenAI compatible server
+	async function fetchLocalModels(provider, baseUrl, apiKey = '') {
+		let fetchUrl = '';
+		let headers = { 'Content-Type': 'application/json' };
+		if (apiKey) {
+			headers['Authorization'] = `Bearer ${apiKey}`;
+		}
+		
+		if (provider === 'ollama') {
+			let url = baseUrl.trim() || 'http://localhost:11434';
+			if (url.endsWith('/')) url = url.substring(0, url.length - 1);
+			fetchUrl = url + '/api/tags';
+		} else {
+			let url = baseUrl.trim() || 'http://localhost:8080/v1';
+			if (url.endsWith('/')) url = url.substring(0, url.length - 1);
+			if (url.endsWith('/v1')) {
+				fetchUrl = url + '/models';
+			} else {
+				fetchUrl = url + '/v1/models';
+			}
+		}
+
+		const controller = new AbortController();
+		const timeoutId = setTimeout(() => controller.abort(), 6000); // 6 seconds timeout
+
+		try {
+			const res = await fetch(fetchUrl, {
+				method: 'GET',
+				headers: headers,
+				signal: controller.signal
+			});
+			clearTimeout(timeoutId);
+			if (!res.ok) {
+				throw new Error(`HTTP error! status: ${res.status}`);
+			}
+			const data = await res.json();
+			return { success: true, data: data };
+		} catch (err) {
+			clearTimeout(timeoutId);
+			if (provider === 'custom') {
+				try {
+					let fallbackUrl = baseUrl.trim();
+					if (fallbackUrl.endsWith('/')) fallbackUrl = fallbackUrl.substring(0, fallbackUrl.length - 1);
+					const res2 = await fetch(fallbackUrl + '/models', {
+						method: 'GET',
+						headers: headers
+					});
+					if (res2.ok) {
+						const data2 = await res2.json();
+						return { success: true, data: data2 };
+					}
+				} catch(e) {}
+			}
+			return { success: false, error: err.message };
+		}
+	}
+
 	// Load Saved Settings from localStorage
 	function loadSettings() {
 		const savedKey = localStorage.getItem('onescript_api_key') || localStorage.getItem('groq_copilot_key');
@@ -1536,7 +1619,18 @@ ${JSON.stringify(lastExecutionDebugData.parsedPlans || [], null, 2)}
 		const provider = providerSelect.value;
 		const key = apiKeyInput.value.trim();
 		const url = apiUrlInput.value.trim();
-		const model = provider === 'groq' ? modelSelect.value : modelInput.value.trim();
+		
+		let model = '';
+		if (provider === 'groq') {
+			model = modelSelect.value;
+		} else {
+			const isManual = modelInputGroup.style.display !== 'none';
+			if (isManual) {
+				model = modelInput.value.trim();
+			} else {
+				model = localModelSelect.value;
+			}
+		}
 		
 		if (provider === 'groq' && !key) {
 			log('Error: Groq API Key cannot be empty.', 'error');
@@ -1562,6 +1656,79 @@ ${JSON.stringify(lastExecutionDebugData.parsedPlans || [], null, 2)}
 		tabPrompt.click(); // Switch back to editor tab
 	});
 
+	// Load Models Button Actions
+	loadModelsBtn.addEventListener('click', async (e) => {
+		e.preventDefault();
+		const provider = providerSelect.value;
+		const url = apiUrlInput.value.trim();
+		const key = apiKeyInput.value.trim();
+		
+		if (!url) {
+			log('Error: Please enter a Base URL first.', 'error');
+			return;
+		}
+		
+		loadModelsBtn.disabled = true;
+		loadModelsBtn.innerText = 'Loading...';
+		log(`Attempting to load models from ${provider} at ${url}...`, 'info');
+		
+		const res = await fetchLocalModels(provider, url, key);
+		loadModelsBtn.disabled = false;
+		loadModelsBtn.innerText = 'Load Models';
+		
+		if (!res.success) {
+			log(`Failed to fetch models: ${res.error}. Enter model name manually.`, 'error');
+			localStorage.removeItem('onescript_fetched_models');
+			localStorage.setItem('onescript_force_manual_model', 'true');
+			adjustSettingsFieldsVisibility();
+			return;
+		}
+		
+		let modelNames = [];
+		try {
+			const data = res.data;
+			if (provider === 'ollama') {
+				if (data && Array.isArray(data.models)) {
+					modelNames = data.models.map(m => m.name);
+				}
+			} else {
+				if (data && Array.isArray(data.data)) {
+					modelNames = data.data.map(m => m.id);
+				} else if (data && Array.isArray(data)) {
+					modelNames = data.map(m => typeof m === 'string' ? m : (m.id || m.name));
+				}
+			}
+		} catch(err) {
+			log(`Error parsing model list response: ${err.message}`, 'error');
+		}
+		
+		if (modelNames.length === 0) {
+			log('No models returned from server. Enter model name manually.', 'warning');
+			localStorage.removeItem('onescript_fetched_models');
+			localStorage.setItem('onescript_force_manual_model', 'true');
+			adjustSettingsFieldsVisibility();
+			return;
+		}
+		
+		log(`Loaded ${modelNames.length} available models successfully!`, 'success');
+		localStorage.setItem('onescript_fetched_models', JSON.stringify(modelNames));
+		localStorage.setItem('onescript_force_manual_model', 'false');
+		adjustSettingsFieldsVisibility();
+	});
+
+	// Toggle manual input links
+	toggleManualModel.addEventListener('click', () => {
+		localStorage.setItem('onescript_force_manual_model', 'true');
+		localModelSelectGroup.style.display = 'none';
+		modelInputGroup.style.display = 'block';
+		toggleDropdownModel.style.display = 'inline-block';
+	});
+
+	toggleDropdownModel.addEventListener('click', () => {
+		localStorage.setItem('onescript_force_manual_model', 'false');
+		adjustSettingsFieldsVisibility();
+	});
+
 	// Remove/Clear Key Actions
 	removeKeyBtn.addEventListener('click', () => {
 		localStorage.removeItem('onescript_api_key');
@@ -1581,6 +1748,13 @@ ${JSON.stringify(lastExecutionDebugData.parsedPlans || [], null, 2)}
 		localStorage.setItem('groq_copilot_model', modelSelect.value);
 		log(`Model switched to Groq: ${modelSelect.value}`, 'info');
 		updateCostBadge();
+	});
+
+	// Save Local Model Choice on change
+	localModelSelect.addEventListener('change', () => {
+		localStorage.setItem('onescript_model', localModelSelect.value);
+		localStorage.setItem('groq_copilot_model', localModelSelect.value);
+		log(`Model switched to Local: ${localModelSelect.value}`, 'info');
 	});
 
 	// Initial welcome screen render and Suggestion Chips handler
