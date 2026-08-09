@@ -2538,6 +2538,34 @@ ${JSON.stringify(lastExecutionDebugData.parsedPlans || [], null, 2)}
 		return logLine;
 	}
 
+	function updateAgenticLog(logLineElement, text, status = 'info') {
+		if (!logLineElement) return;
+		const iconWrap = logLineElement.querySelector('.log-icon');
+		const textWrap = logLineElement.querySelector('.log-text');
+		
+		if (textWrap && text !== undefined) {
+			textWrap.innerText = text;
+		}
+		
+		if (iconWrap) {
+			let icon = '<span style="color: var(--text-muted); font-size: 8px; margin-top: 4px;">●</span>';
+			if (status === 'running') {
+				icon = '<div class="stepper-spinner" style="width: 9px; height: 9px; border-width: 1.5px; border-top-color: var(--primary);"></div>';
+			} else if (status === 'success') {
+				icon = '<span style="color: #10b981; font-weight: bold;">✓</span>';
+			} else if (status === 'failed') {
+				icon = '<span style="color: #f43f5e; font-weight: bold;">✗</span>';
+			} else if (status === 'think') {
+				icon = '<span style="color: var(--primary); font-size: 8px; margin-top: 4px;">●</span>';
+			} else if (status === 'apply') {
+				icon = '<span style="color: #3b82f6; font-size: 8px; margin-top: 4px;">●</span>';
+			} else if (status === 'check') {
+				icon = '<span style="color: #10b981; font-size: 8px; margin-top: 4px;">●</span>';
+			}
+			iconWrap.innerHTML = icon;
+		}
+	}
+
 	function addAgenticSubAction(logLineElement, text, success = true) {
 		let subActionsContainer = logLineElement.querySelector('.agent-sub-actions');
 		if (!subActionsContainer) {
@@ -2669,11 +2697,11 @@ ${JSON.stringify(lastExecutionDebugData.parsedPlans || [], null, 2)}
 				return;
 			}
 			// LAYER 1: Intent Router
-			addAgenticLog(activeAiMessageBody, "Classifying request intent...", "running");
+			const logIntent = addAgenticLog(activeAiMessageBody, "Classifying request intent...", "running");
 			const intent = await routeIntent(prompt);
 			lastExecutionDebugData.intent = intent;
 			if (typeof updateDebugViewer === 'function') updateDebugViewer();
-			addAgenticLog(activeAiMessageBody, `Classified user request intent: [${intent.toUpperCase()}]`, "success");
+			updateAgenticLog(logIntent, `Classified user request intent: [${intent.toUpperCase()}]`, "success");
 
 			if (intent === INTENTS.CHAT) {
 				const logChat = addAgenticLog(activeAiMessageBody, "Formulating response...", "running");
@@ -2692,8 +2720,11 @@ ${JSON.stringify(lastExecutionDebugData.parsedPlans || [], null, 2)}
 				const thinkingCard = activeAiMessageBody.querySelector('.agent-thinking-card');
 				if (thinkingCard) thinkingCard.remove();
 				
-				logChat.innerHTML = `
-					<div class="chat-direct-response" style="line-height: 1.45; font-size: 11.5px; color: var(--text-primary); margin-top: 6px;">
+				if (logChat) logChat.remove();
+				if (logIntent) logIntent.remove();
+				
+				activeAiMessageBody.innerHTML += `
+					<div class="chat-direct-response" style="line-height: 1.45; font-size: 11.5px; color: var(--text-primary); margin-top: 6px; animation: slideUp 0.3s cubic-bezier(0.4, 0, 0.2, 1) forwards;">
 						${chatRes.replace(/\n/g, '<br>')}
 					</div>
 				`;
@@ -2704,7 +2735,7 @@ ${JSON.stringify(lastExecutionDebugData.parsedPlans || [], null, 2)}
 			}
 
 			// LAYER 2: Context Builder Serialization mode determination
-			addAgenticLog(activeAiMessageBody, "Compiling and serializing document ranges...", "running");
+			const logCompile = addAgenticLog(activeAiMessageBody, "Compiling and serializing document ranges...", "running");
 			let serializationMode = "minimal";
 			if (intent === INTENTS.FORMAT || intent === INTENTS.INSERT_CONTENT || intent === INTENTS.DELETE_CONTENT || intent === INTENTS.REWRITE) {
 				serializationMode = "medium";
@@ -2727,7 +2758,7 @@ ${JSON.stringify(lastExecutionDebugData.parsedPlans || [], null, 2)}
 
 			if (totalElements === 0 && intent !== INTENTS.CREATE_DOCUMENT) {
 				log('Error: Selection range or document is empty.', 'error');
-				addAgenticLog(activeAiMessageBody, "Selection range or document is empty.", "failed");
+				updateAgenticLog(logCompile, "Selection range or document is empty.", "failed");
 				activeAiMessageBody.innerHTML += '<div style="color: var(--error); margin-top: 8px;">Error: Selection range or document is empty.</div>';
 				lastExecutionDebugData.status = "Failed: Selection range or document is empty.";
 				if (typeof updateDebugViewer === 'function') updateDebugViewer();
@@ -2736,7 +2767,7 @@ ${JSON.stringify(lastExecutionDebugData.parsedPlans || [], null, 2)}
 				return;
 			}
 
-			addAgenticLog(activeAiMessageBody, `Compacted and parsed ${totalElements} active document elements.`, "success");
+			updateAgenticLog(logCompile, `Compacted and parsed ${totalElements} active document elements.`, "success");
 			
 			let iteration = 0;
 			const maxIterations = 5;
@@ -2764,7 +2795,7 @@ ${JSON.stringify(lastExecutionDebugData.parsedPlans || [], null, 2)}
 					parsedRes = JSON.parse(clean);
 				} catch(e) {
 					log(`Failed to parse agent JSON: ${e.message}`, 'error');
-					logThink.innerHTML = `<div class="log-icon"><span style="color: #f43f5e;">✗</span></div><div class="log-text">[Step ${iteration}] Failed to parse planner response.</div>`;
+					updateAgenticLog(logThink, `[Step ${iteration}] Failed to parse planner response.`, "failed");
 					throw new Error("Could not parse a valid JSON action script from the agent's response.");
 				}
 				
@@ -2775,10 +2806,11 @@ ${JSON.stringify(lastExecutionDebugData.parsedPlans || [], null, 2)}
 				log(`Agent Thought (Iteration ${iteration}): "${thought}"`, 'info');
 				updateAgenticThought(activeAiMessageBody, thought);
 				
-				logThink.innerHTML = `<div class="log-icon">🧠</div><div class="log-text">[Step ${iteration}] Thought formulated.</div>`;
+				updateAgenticLog(logThink, `[Step ${iteration}] Thought formulated.`, "success");
 				
 				if (isDone || stepPlans.length === 0) {
-					addAgenticLog(activeAiMessageBody, `Agent determined all changes are complete. Ending thinking loop.`, "success");
+					if (logThink) logThink.remove();
+					addAgenticLog(activeAiMessageBody, `Agent determined all changes are complete.`, "success");
 					break;
 				}
 				
@@ -2789,7 +2821,7 @@ ${JSON.stringify(lastExecutionDebugData.parsedPlans || [], null, 2)}
 				const outcomes = await executeSingleStepEdits(stepPlans, modifications);
 				isEditingAutonomously = false;
 				
-				logApply.innerHTML = `<div class="log-icon">🛠️</div><div class="log-text">[Step ${iteration}] Finished applying proposed edits:</div>`;
+				updateAgenticLog(logApply, `[Step ${iteration}] Finished applying proposed edits:`, "success");
 				
 				outcomes.forEach(out => {
 					const desc = `${out.action} on paragraph #${out.targetIndex}`;
