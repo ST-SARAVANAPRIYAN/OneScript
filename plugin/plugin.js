@@ -1252,6 +1252,7 @@ ${JSON.stringify(lastExecutionDebugData.parsedPlans || [], null, 2)}
 
 	// Supported Intents for the Router Layer
 	const INTENTS = {
+		CHAT: "chat",
 		REWRITE: "rewrite",
 		SUMMARIZE: "summarize",
 		TRANSLATE: "translate",
@@ -2462,7 +2463,7 @@ ${JSON.stringify(lastExecutionDebugData.parsedPlans || [], null, 2)}
 			</div>
 			<div class="agent-thinking-card">
 				<div class="agent-thinking-header">
-					<span>🧠 Thought Process</span>
+					<span>Thought Process</span>
 					<span class="chevron">▼</span>
 				</div>
 				<div class="agent-thinking-body">Initializing analysis...</div>
@@ -2512,19 +2513,19 @@ ${JSON.stringify(lastExecutionDebugData.parsedPlans || [], null, 2)}
 		const logLine = document.createElement('div');
 		logLine.className = 'agent-log-line';
 
-		let icon = '⚙️';
+		let icon = '<span style="color: var(--text-muted); font-size: 8px; margin-top: 4px;">●</span>';
 		if (status === 'running') {
 			icon = '<div class="stepper-spinner" style="width: 9px; height: 9px; border-width: 1.5px; border-top-color: var(--primary);"></div>';
 		} else if (status === 'success') {
-			icon = '<span style="color: #10b981;">✓</span>';
+			icon = '<span style="color: #10b981; font-weight: bold;">✓</span>';
 		} else if (status === 'failed') {
-			icon = '<span style="color: #f43f5e;">✗</span>';
+			icon = '<span style="color: #f43f5e; font-weight: bold;">✗</span>';
 		} else if (status === 'think') {
-			icon = '🧠';
+			icon = '<span style="color: var(--primary); font-size: 8px; margin-top: 4px;">●</span>';
 		} else if (status === 'apply') {
-			icon = '🛠️';
+			icon = '<span style="color: #3b82f6; font-size: 8px; margin-top: 4px;">●</span>';
 		} else if (status === 'check') {
-			icon = '🔍';
+			icon = '<span style="color: #10b981; font-size: 8px; margin-top: 4px;">●</span>';
 		}
 
 		logLine.innerHTML = `
@@ -2548,7 +2549,7 @@ ${JSON.stringify(lastExecutionDebugData.parsedPlans || [], null, 2)}
 		const subActionLine = document.createElement('div');
 		subActionLine.className = `agent-sub-action-line ${success ? 'success' : 'failed'}`;
 		subActionLine.innerHTML = `
-			<span>${success ? '✓' : '✗'}</span>
+			<span>${success ? '<span style="color: #10b981; font-weight: bold;">✓</span>' : '<span style="color: #f43f5e; font-weight: bold;">✗</span>'}</span>
 			<span>${text}</span>
 		`;
 
@@ -2667,13 +2668,40 @@ ${JSON.stringify(lastExecutionDebugData.parsedPlans || [], null, 2)}
 				
 				return;
 			}
-
 			// LAYER 1: Intent Router
 			addAgenticLog(activeAiMessageBody, "Classifying request intent...", "running");
 			const intent = await routeIntent(prompt);
 			lastExecutionDebugData.intent = intent;
 			if (typeof updateDebugViewer === 'function') updateDebugViewer();
 			addAgenticLog(activeAiMessageBody, `Classified user request intent: [${intent.toUpperCase()}]`, "success");
+
+			if (intent === INTENTS.CHAT) {
+				const logChat = addAgenticLog(activeAiMessageBody, "Formulating response...", "running");
+				
+				const activeModel = localStorage.getItem('onescript_model') || localStorage.getItem('groq_copilot_model') || 'llama-3.3-70b-versatile';
+				const chatMessages = [
+					{ 
+						role: 'system', 
+						content: "You are a helpful, professional assistant for ONLYOFFICE document editors. The user is greeting you or asking a general question. Respond directly, professionally, and concisely without returning any JSON or code. Do not format as JSON." 
+					},
+					{ role: 'user', content: prompt }
+				];
+				
+				const chatRes = await queryActiveLLM(chatMessages, 0.7, false);
+				
+				const thinkingCard = activeAiMessageBody.querySelector('.agent-thinking-card');
+				if (thinkingCard) thinkingCard.remove();
+				
+				logChat.innerHTML = `
+					<div class="chat-direct-response" style="line-height: 1.45; font-size: 11.5px; color: var(--text-primary); margin-top: 6px;">
+						${chatRes.replace(/\n/g, '<br>')}
+					</div>
+				`;
+				
+				setAgenticComplete(activeAiMessageBody, true);
+				setLoading(false);
+				return;
+			}
 
 			// LAYER 2: Context Builder Serialization mode determination
 			addAgenticLog(activeAiMessageBody, "Compiling and serializing document ranges...", "running");
@@ -2988,7 +3016,18 @@ ${JSON.stringify(lastExecutionDebugData.parsedPlans || [], null, 2)}
 	// LAYER 1: Intent Router Layer
 	async function routeIntent(prompt) {
 		log(`Routing user intent for prompt: "${prompt.substring(0, 40)}..."`, 'info');
+		
+		const cleanPrompt = prompt.toLowerCase().trim();
+		// Intercept basic greetings, chat-like questions, or system diagnostics locally
+		if (cleanPrompt === 'hi' || cleanPrompt === 'hello' || cleanPrompt === 'hey' || cleanPrompt === 'greetings' ||
+			cleanPrompt === 'help' || cleanPrompt === 'who are you' || cleanPrompt.includes('what is this') || 
+			cleanPrompt === 'what can you do' || cleanPrompt.startsWith('how to') || cleanPrompt.startsWith('how do i')) {
+			log(`Intercepted general conversational chat query. Routing to [CHAT] intent directly.`, 'success');
+			return INTENTS.CHAT;
+		}
+
 		const systemMessage = `You are an Intent Router. Your job is to classify the user's document editing request into exactly one of the following intents:
+- "chat": Simple greetings, social questions, introductions, help requests, general chit-chat, or questions that do NOT ask to edit, analyze, format, or restructure the document.
 - "rewrite": Rewrite, rephrase, change tone, expand, shorten, professionalize text.
 - "summarize": Create summary, bullets, overview of selection/document.
 - "translate": Translate text into another language.
@@ -2999,9 +3038,9 @@ ${JSON.stringify(lastExecutionDebugData.parsedPlans || [], null, 2)}
 - "restructure": Reorganize, sort headings, change document flow or page layout/margins.
 - "analyze": Analyze grammar, spelling, structure, style issues, readability.
 
-Respond ONLY with a valid JSON object containing a single key "intent" mapped to one of the following exact string values: "rewrite", "summarize", "translate", "format", "create_document", "insert_content", "delete_content", "restructure", "analyze".
+Respond ONLY with a valid JSON object containing a single key "intent" mapped to one of the following exact string values: "chat", "rewrite", "summarize", "translate", "format", "create_document", "insert_content", "delete_content", "restructure", "analyze".
 Do not include markdown packaging.
-Example response: {"intent": "rewrite"}`;
+Example response: {"intent": "chat"}`;
 
 		const messages = [
 			{ role: 'system', content: systemMessage },
