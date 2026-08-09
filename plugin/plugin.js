@@ -2453,6 +2453,137 @@ ${JSON.stringify(lastExecutionDebugData.parsedPlans || [], null, 2)}
 		}
 	}
 
+	// Agentic UI Initializer and Dynamic Renderers
+	function initAgenticMessage(aiMessageBody) {
+		aiMessageBody.innerHTML = `
+			<div class="agent-status-bar" style="display: flex; align-items: center; gap: 6px; font-size: 10.5px; font-weight: 600; color: var(--primary); margin-bottom: 8px;">
+				<div class="stepper-spinner" style="width: 10px; height: 10px; border-width: 1.5px;"></div>
+				<span>OneScript Agent Active...</span>
+			</div>
+			<div class="agent-thinking-card">
+				<div class="agent-thinking-header">
+					<span>🧠 Thought Process</span>
+					<span class="chevron">▼</span>
+				</div>
+				<div class="agent-thinking-body">Initializing analysis...</div>
+			</div>
+			<div class="agent-step-logs"></div>
+		`;
+
+		// Bind accordion click listener to toggle thought process box
+		const header = aiMessageBody.querySelector('.agent-thinking-header');
+		const body = aiMessageBody.querySelector('.agent-thinking-body');
+		const chevron = header.querySelector('.chevron');
+		
+		header.addEventListener('click', () => {
+			const isExpanded = body.classList.contains('expanded');
+			if (isExpanded) {
+				body.classList.remove('expanded');
+				header.classList.remove('expanded');
+				chevron.innerText = '▼';
+			} else {
+				body.classList.add('expanded');
+				header.classList.add('expanded');
+				chevron.innerText = '▲';
+			}
+		});
+	}
+
+	function updateAgenticThought(aiMessageBody, thought) {
+		const body = aiMessageBody.querySelector('.agent-thinking-body');
+		const header = aiMessageBody.querySelector('.agent-thinking-header');
+		const chevron = header ? header.querySelector('.chevron') : null;
+		
+		if (body) {
+			body.innerText = thought;
+			// Expand automatically on first real thought update
+			if (!body.classList.contains('expanded')) {
+				body.classList.add('expanded');
+				if (header) header.classList.add('expanded');
+				if (chevron) chevron.innerText = '▲';
+			}
+		}
+	}
+
+	function addAgenticLog(aiMessageBody, text, status = 'info') {
+		const logsContainer = aiMessageBody.querySelector('.agent-step-logs');
+		if (!logsContainer) return null;
+
+		const logLine = document.createElement('div');
+		logLine.className = 'agent-log-line';
+
+		let icon = '⚙️';
+		if (status === 'running') {
+			icon = '<div class="stepper-spinner" style="width: 9px; height: 9px; border-width: 1.5px; border-top-color: var(--primary);"></div>';
+		} else if (status === 'success') {
+			icon = '<span style="color: #10b981;">✓</span>';
+		} else if (status === 'failed') {
+			icon = '<span style="color: #f43f5e;">✗</span>';
+		} else if (status === 'think') {
+			icon = '🧠';
+		} else if (status === 'apply') {
+			icon = '🛠️';
+		} else if (status === 'check') {
+			icon = '🔍';
+		}
+
+		logLine.innerHTML = `
+			<div class="log-icon">${icon}</div>
+			<div class="log-text">${text}</div>
+		`;
+
+		logsContainer.appendChild(logLine);
+		chatHistoryContainer.scrollTop = chatHistoryContainer.scrollHeight;
+		return logLine;
+	}
+
+	function addAgenticSubAction(logLineElement, text, success = true) {
+		let subActionsContainer = logLineElement.querySelector('.agent-sub-actions');
+		if (!subActionsContainer) {
+			subActionsContainer = document.createElement('div');
+			subActionsContainer.className = 'agent-sub-actions';
+			logLineElement.appendChild(subActionsContainer);
+		}
+
+		const subActionLine = document.createElement('div');
+		subActionLine.className = `agent-sub-action-line ${success ? 'success' : 'failed'}`;
+		subActionLine.innerHTML = `
+			<span>${success ? '✓' : '✗'}</span>
+			<span>${text}</span>
+		`;
+
+		subActionsContainer.appendChild(subActionLine);
+		chatHistoryContainer.scrollTop = chatHistoryContainer.scrollHeight;
+		return subActionLine;
+	}
+
+	function setAgenticComplete(aiMessageBody, success = true) {
+		const statusBar = aiMessageBody.querySelector('.agent-status-bar');
+		if (statusBar) {
+			if (success) {
+				statusBar.innerHTML = `
+					<span style="color: #10b981; font-size: 12px; margin-right: 4px;">✓</span>
+					<span style="color: #10b981;">Agent Task Completed</span>
+				`;
+			} else {
+				statusBar.innerHTML = `
+					<span style="color: #f43f5e; font-size: 12px; margin-right: 4px;">✗</span>
+					<span style="color: #f43f5e;">Agent Task Failed</span>
+				`;
+			}
+		}
+		
+		// Collapse thought process at completion to keep chat clean
+		const body = aiMessageBody.querySelector('.agent-thinking-body');
+		const header = aiMessageBody.querySelector('.agent-thinking-header');
+		const chevron = header ? header.querySelector('.chevron') : null;
+		if (body && body.classList.contains('expanded')) {
+			body.classList.remove('expanded');
+			if (header) header.classList.remove('expanded');
+			if (chevron) chevron.innerText = '▼';
+		}
+	}
+
 	// Click run button (Refactored Intent-routed Context-aware Pipeline)
 	executeBtn.addEventListener('click', async () => {
 		const provider = localStorage.getItem('onescript_provider') || 'groq';
@@ -2484,14 +2615,8 @@ ${JSON.stringify(lastExecutionDebugData.parsedPlans || [], null, 2)}
 			log(`Could not capture auto-checkpoint: ${e.message}`, 'warning');
 		}
 
-		// Initialize Stepper
-		currentAgentSteps = [
-			{ label: "Classifying Request Intent", status: "running", details: "Contacting Router AI..." },
-			{ label: "Extracting Document Context", status: "pending", details: "" },
-			{ label: "Building Modification Plan", status: "pending", details: "" },
-			{ label: "Applying Edits Live", status: "pending", details: "" }
-		];
-		updateAgentStepper(activeAiMessageBody, currentAgentSteps);
+		// Initialize Agentic UI Layout
+		initAgenticMessage(activeAiMessageBody);
 
 		// Initialize Telemetry Log
 		lastExecutionDebugData = {
@@ -2521,18 +2646,14 @@ ${JSON.stringify(lastExecutionDebugData.parsedPlans || [], null, 2)}
 			    lowerPrompt.indexOf("clean layout") !== -1 || 
 			    lowerPrompt.indexOf("restructure paragraph") !== -1) {
 				
-				setStepperStep(0, "done", "Identified Defragment Request");
-				setStepperStep(1, "running", "Executing layout merge in document...");
-				
+				addAgenticLog(activeAiMessageBody, "Executing native layout defragmentation...", "running");
 				const mergeResult = await runDefragmentCommand();
+				addAgenticLog(activeAiMessageBody, `Merged ${mergeResult.mergedCount} fragmented lines into continuous paragraphs.`, "success");
+				setAgenticComplete(activeAiMessageBody, true);
 				
-				setStepperStep(1, "done", `Merged ${mergeResult.mergedCount} fragmented lines.`);
-				setStepperStep(2, "done", "Finished");
-				setStepperStep(3, "done", "Completed successfully");
-				
-				activeAiMessageBody.innerHTML = `
+				activeAiMessageBody.innerHTML += `
 					<div class="stepper-success-message" style="padding: 10px; border-radius: 6px; background: var(--success-glow); border: 1px solid var(--success); font-size: 11px; margin-top: 10px;">
-						<span style="font-weight: 600; color: var(--success);">Success!</span> Natively defragmented document layout: merged <strong>${mergeResult.mergedCount}</strong> fragmented lines into continuous paragraphs.
+						<span style="font-weight: 600; color: var(--success);">Success!</span> Natively defragmented document layout: merged <strong>${mergeResult.mergedCount}</strong> fragmented lines.
 					</div>
 				`;
 				
@@ -2548,14 +2669,14 @@ ${JSON.stringify(lastExecutionDebugData.parsedPlans || [], null, 2)}
 			}
 
 			// LAYER 1: Intent Router
+			addAgenticLog(activeAiMessageBody, "Classifying request intent...", "running");
 			const intent = await routeIntent(prompt);
 			lastExecutionDebugData.intent = intent;
 			if (typeof updateDebugViewer === 'function') updateDebugViewer();
-
-			setStepperStep(0, "done", `Classified as [${intent.toUpperCase()}]`);
-			setStepperStep(1, "running", "Compiling document ranges...");
+			addAgenticLog(activeAiMessageBody, `Classified user request intent: [${intent.toUpperCase()}]`, "success");
 
 			// LAYER 2: Context Builder Serialization mode determination
+			addAgenticLog(activeAiMessageBody, "Compiling and serializing document ranges...", "running");
 			let serializationMode = "minimal";
 			if (intent === INTENTS.FORMAT || intent === INTENTS.INSERT_CONTENT || intent === INTENTS.DELETE_CONTENT || intent === INTENTS.REWRITE) {
 				serializationMode = "medium";
@@ -2578,15 +2699,16 @@ ${JSON.stringify(lastExecutionDebugData.parsedPlans || [], null, 2)}
 
 			if (totalElements === 0 && intent !== INTENTS.CREATE_DOCUMENT) {
 				log('Error: Selection range or document is empty.', 'error');
-				setStepperStep(1, "failed", "Empty selection range");
-				activeAiMessageBody.innerText = 'Error: Selection range or document is empty.';
+				addAgenticLog(activeAiMessageBody, "Selection range or document is empty.", "failed");
+				activeAiMessageBody.innerHTML += '<div style="color: var(--error); margin-top: 8px;">Error: Selection range or document is empty.</div>';
 				lastExecutionDebugData.status = "Failed: Selection range or document is empty.";
 				if (typeof updateDebugViewer === 'function') updateDebugViewer();
+				setAgenticComplete(activeAiMessageBody, false);
 				setLoading(false);
 				return;
 			}
 
-			setStepperStep(1, "done", `Compacted ${totalElements} elements`);
+			addAgenticLog(activeAiMessageBody, `Compacted and parsed ${totalElements} active document elements.`, "success");
 			
 			let iteration = 0;
 			const maxIterations = 5;
@@ -2594,14 +2716,12 @@ ${JSON.stringify(lastExecutionDebugData.parsedPlans || [], null, 2)}
 			let isDone = false;
 			let modifications = [];
 			proposedChanges = [];
-
-			setStepperStep(2, "running", "Querying agent planner (Iteration 1)...");
 			
 			while (iteration < maxIterations && !isDone) {
 				iteration++;
 				const activeModel = localStorage.getItem('onescript_model') || localStorage.getItem('groq_copilot_model') || 'llama-3.3-70b-versatile';
-				log(`Querying Planner LLM [${activeModel}] (Iteration ${iteration})...`, 'info');
-				setStepperStep(2, "running", `Querying agent planner (Iteration ${iteration})...`);
+				
+				const logThink = addAgenticLog(activeAiMessageBody, `[Step ${iteration}] Querying agent planner via ${activeModel}...`, "running");
 				
 				const aiResponse = await queryPlannerLLM(cachedDocData, prompt, intent, history);
 				lastExecutionDebugData.rawResponse = aiResponse;
@@ -2616,6 +2736,7 @@ ${JSON.stringify(lastExecutionDebugData.parsedPlans || [], null, 2)}
 					parsedRes = JSON.parse(clean);
 				} catch(e) {
 					log(`Failed to parse agent JSON: ${e.message}`, 'error');
+					logThink.innerHTML = `<div class="log-icon"><span style="color: #f43f5e;">✗</span></div><div class="log-text">[Step ${iteration}] Failed to parse planner response.</div>`;
 					throw new Error("Could not parse a valid JSON action script from the agent's response.");
 				}
 				
@@ -2624,19 +2745,28 @@ ${JSON.stringify(lastExecutionDebugData.parsedPlans || [], null, 2)}
 				isDone = !!parsedRes.done;
 				
 				log(`Agent Thought (Iteration ${iteration}): "${thought}"`, 'info');
-				setStepperStep(2, "running", `Thought: ${thought.substring(0, 30)}...`);
+				updateAgenticThought(activeAiMessageBody, thought);
+				
+				logThink.innerHTML = `<div class="log-icon">🧠</div><div class="log-text">[Step ${iteration}] Thought formulated.</div>`;
 				
 				if (isDone || stepPlans.length === 0) {
-					log(`Agent completed all actions. Terminating loop.`, 'success');
+					addAgenticLog(activeAiMessageBody, `Agent determined all changes are complete. Ending thinking loop.`, "success");
 					break;
 				}
 				
 				log(`Agent proposed ${stepPlans.length} actions in Iteration ${iteration}.`, 'info');
-				setStepperStep(3, "running", `Executing step ${iteration} (${stepPlans.length} actions)...`);
+				const logApply = addAgenticLog(activeAiMessageBody, `Applying and verifying ${stepPlans.length} proposed edits...`, "running");
 				
 				isEditingAutonomously = true;
 				const outcomes = await executeSingleStepEdits(stepPlans, modifications);
 				isEditingAutonomously = false;
+				
+				logApply.innerHTML = `<div class="log-icon">🛠️</div><div class="log-text">[Step ${iteration}] Finished applying proposed edits:</div>`;
+				
+				outcomes.forEach(out => {
+					const desc = `${out.action} on paragraph #${out.targetIndex}`;
+					addAgenticSubAction(logApply, `${desc}: ${out.reason}`, out.success);
+				});
 				
 				// Record step in history
 				history.push({
@@ -2655,16 +2785,14 @@ ${JSON.stringify(lastExecutionDebugData.parsedPlans || [], null, 2)}
 				await new Promise(r => setTimeout(r, 200));
 			}
 			
-			setStepperStep(2, "done", `Completed thinking loop in ${iteration} steps.`);
+			setAgenticComplete(activeAiMessageBody, true);
 			
 			if (proposedChanges.length === 0) {
 				log('Analysis complete: No logical changes suggested for this request.', 'warning');
-				setStepperStep(3, "done", "No edits needed");
-				activeAiMessageBody.innerText = 'No edits needed for this request.';
+				activeAiMessageBody.innerHTML += '<div style="margin-top: 10px; font-size: 11px;">No document edits were necessary for this request.</div>';
 				lastExecutionDebugData.status = "No changes suggested.";
 			} else {
 				log(`Agent loop completed successfully. Total actions executed: ${proposedChanges.length}`, 'success');
-				setStepperStep(3, "done", `Applied ${proposedChanges.length} edits`);
 				
 				executeBtn.disabled = false;
 				lastInternalQueryTime = Date.now();
@@ -2684,14 +2812,9 @@ ${JSON.stringify(lastExecutionDebugData.parsedPlans || [], null, 2)}
 
 		} catch (err) {
 			log(`Execution Error: ${err.message}`, 'error');
-			// Mark running step as failed
-			const runningIdx = currentAgentSteps ? currentAgentSteps.findIndex(s => s.status === 'running') : -1;
-			if (runningIdx !== -1) {
-				setStepperStep(runningIdx, "failed", err.message);
-			}
-			if (activeAiMessageBody) {
-				activeAiMessageBody.innerHTML += `<div style="color: var(--error); margin-top: 8px;">Error: ${err.message}</div>`;
-			}
+			addAgenticLog(activeAiMessageBody, `Error during execution: ${err.message}`, "failed");
+			setAgenticComplete(activeAiMessageBody, false);
+			
 			lastExecutionDebugData.status = "Failed: " + err.message;
 			if (typeof updateDebugViewer === 'function') updateDebugViewer();
 			console.error(err);

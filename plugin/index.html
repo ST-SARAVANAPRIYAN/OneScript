@@ -900,6 +900,110 @@
 			color: var(--accent-cyan);
 		}
 
+		/* Agentic UI Thinking Block & Step Logs */
+		.agent-thinking-card {
+			margin-top: 6px;
+			margin-bottom: 8px;
+			border: 1px solid var(--border-color);
+			border-radius: var(--border-radius-md);
+			background-color: rgba(30, 41, 59, 0.25);
+			overflow: hidden;
+			transition: var(--transition);
+		}
+
+		.agent-thinking-header {
+			padding: 6px 10px;
+			font-size: 10px;
+			font-weight: 600;
+			color: var(--accent, #3b82f6);
+			background-color: rgba(255, 255, 255, 0.02);
+			display: flex;
+			justify-content: space-between;
+			align-items: center;
+			cursor: pointer;
+			user-select: none;
+			border-bottom: 1px solid transparent;
+		}
+		
+		.agent-thinking-header:hover {
+			background-color: rgba(255, 255, 255, 0.04);
+		}
+		
+		.agent-thinking-header.expanded {
+			border-bottom-color: var(--border-color);
+		}
+
+		.agent-thinking-body {
+			padding: 8px 12px;
+			font-size: 10px;
+			line-height: 1.4;
+			color: var(--text-secondary);
+			font-family: var(--font-sans);
+			max-height: 150px;
+			overflow-y: auto;
+			display: none;
+			white-space: pre-wrap;
+		}
+
+		.agent-thinking-body.expanded {
+			display: block;
+		}
+
+		.agent-step-logs {
+			display: flex;
+			flex-direction: column;
+			gap: 8px;
+			margin-top: 8px;
+			margin-bottom: 8px;
+		}
+
+		.agent-log-line {
+			display: flex;
+			align-items: flex-start;
+			gap: 8px;
+			font-size: 10.5px;
+			font-weight: 500;
+			color: var(--text-primary);
+		}
+
+		.agent-log-line .log-icon {
+			flex-shrink: 0;
+			display: flex;
+			align-items: center;
+			justify-content: center;
+			margin-top: 1px;
+		}
+
+		.agent-log-line .log-text {
+			flex: 1;
+		}
+
+		.agent-sub-actions {
+			display: flex;
+			flex-direction: column;
+			gap: 4px;
+			margin-left: 18px;
+			margin-top: 4px;
+			border-left: 1px dashed var(--border-color);
+			padding-left: 8px;
+		}
+
+		.agent-sub-action-line {
+			display: flex;
+			align-items: center;
+			gap: 5px;
+			font-size: 9.5px;
+			color: var(--text-secondary);
+		}
+		
+		.agent-sub-action-line.success {
+			color: #10b981;
+		}
+		
+		.agent-sub-action-line.failed {
+			color: #f43f5e;
+		}
+
 		/* Interactive Outline Tree Elements */
 		.outline-wrapper {
 			display: flex;
@@ -1545,6 +1649,6 @@
 	<!-- System libraries -->
 	<script type="text/javascript" src="./../v1/plugins.js"></script>
 	<script type="text/javascript" src="./../v1/plugins-ui.js"></script>
-	<script src="plugin.js?v=1786249826"></script>
+	<script src="plugin.js?v=1786250381"></script>
 </body>
 </html>
