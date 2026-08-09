@@ -2602,10 +2602,6 @@ ${JSON.stringify(lastExecutionDebugData.parsedPlans || [], null, 2)}
 			}
 		}
 		
-		// Collapse thought process at completion to keep chat clean
-		const body = aiMessageBody.querySelector('.agent-thinking-body');
-		const header = aiMessageBody.querySelector('.agent-thinking-header');
-		const chevron = header ? header.querySelector('.chevron') : null;
 		if (body && body.classList.contains('expanded')) {
 			body.classList.remove('expanded');
 			if (header) header.classList.remove('expanded');
@@ -2663,6 +2659,7 @@ ${JSON.stringify(lastExecutionDebugData.parsedPlans || [], null, 2)}
 		};
 		if (typeof updateDebugViewer === 'function') updateDebugViewer();
 
+		let activeRunningLog = null;
 		setLoading(true);
 
 		try {
@@ -2675,9 +2672,10 @@ ${JSON.stringify(lastExecutionDebugData.parsedPlans || [], null, 2)}
 			    lowerPrompt.indexOf("clean layout") !== -1 || 
 			    lowerPrompt.indexOf("restructure paragraph") !== -1) {
 				
-				addAgenticLog(activeAiMessageBody, "Executing native layout defragmentation...", "running");
+				activeRunningLog = addAgenticLog(activeAiMessageBody, "Executing native layout defragmentation...", "running");
 				const mergeResult = await runDefragmentCommand();
-				addAgenticLog(activeAiMessageBody, `Merged ${mergeResult.mergedCount} fragmented lines into continuous paragraphs.`, "success");
+				updateAgenticLog(activeRunningLog, `Merged ${mergeResult.mergedCount} fragmented lines into continuous paragraphs.`, "success");
+				activeRunningLog = null;
 				setAgenticComplete(activeAiMessageBody, true);
 				
 				activeAiMessageBody.innerHTML += `
@@ -2696,15 +2694,19 @@ ${JSON.stringify(lastExecutionDebugData.parsedPlans || [], null, 2)}
 				
 				return;
 			}
+
 			// LAYER 1: Intent Router
 			const logIntent = addAgenticLog(activeAiMessageBody, "Classifying request intent...", "running");
+			activeRunningLog = logIntent;
 			const intent = await routeIntent(prompt);
 			lastExecutionDebugData.intent = intent;
 			if (typeof updateDebugViewer === 'function') updateDebugViewer();
 			updateAgenticLog(logIntent, `Classified user request intent: [${intent.toUpperCase()}]`, "success");
+			activeRunningLog = null;
 
 			if (intent === INTENTS.CHAT) {
 				const logChat = addAgenticLog(activeAiMessageBody, "Formulating response...", "running");
+				activeRunningLog = logChat;
 				
 				const activeModel = localStorage.getItem('onescript_model') || localStorage.getItem('groq_copilot_model') || 'llama-3.3-70b-versatile';
 				const chatMessages = [
@@ -2722,6 +2724,7 @@ ${JSON.stringify(lastExecutionDebugData.parsedPlans || [], null, 2)}
 				
 				if (logChat) logChat.remove();
 				if (logIntent) logIntent.remove();
+				activeRunningLog = null;
 				
 				activeAiMessageBody.innerHTML += `
 					<div class="chat-direct-response" style="line-height: 1.45; font-size: 11.5px; color: var(--text-primary); margin-top: 6px; animation: slideUp 0.3s cubic-bezier(0.4, 0, 0.2, 1) forwards;">
@@ -2736,6 +2739,7 @@ ${JSON.stringify(lastExecutionDebugData.parsedPlans || [], null, 2)}
 
 			// LAYER 2: Context Builder Serialization mode determination
 			const logCompile = addAgenticLog(activeAiMessageBody, "Compiling and serializing document ranges...", "running");
+			activeRunningLog = logCompile;
 			let serializationMode = "minimal";
 			if (intent === INTENTS.FORMAT || intent === INTENTS.INSERT_CONTENT || intent === INTENTS.DELETE_CONTENT || intent === INTENTS.REWRITE) {
 				serializationMode = "medium";
@@ -2764,10 +2768,12 @@ ${JSON.stringify(lastExecutionDebugData.parsedPlans || [], null, 2)}
 				if (typeof updateDebugViewer === 'function') updateDebugViewer();
 				setAgenticComplete(activeAiMessageBody, false);
 				setLoading(false);
+				activeRunningLog = null;
 				return;
 			}
 
 			updateAgenticLog(logCompile, `Compacted and parsed ${totalElements} active document elements.`, "success");
+			activeRunningLog = null;
 			
 			let iteration = 0;
 			const maxIterations = 5;
@@ -2781,6 +2787,8 @@ ${JSON.stringify(lastExecutionDebugData.parsedPlans || [], null, 2)}
 				const activeModel = localStorage.getItem('onescript_model') || localStorage.getItem('groq_copilot_model') || 'llama-3.3-70b-versatile';
 				
 				const logThink = addAgenticLog(activeAiMessageBody, `[Step ${iteration}] Querying agent planner via ${activeModel}...`, "running");
+				activeRunningLog = logThink;
+				updateAgenticThought(activeAiMessageBody, "Querying planner and formulating document edits...");
 				
 				const aiResponse = await queryPlannerLLM(cachedDocData, prompt, intent, history);
 				lastExecutionDebugData.rawResponse = aiResponse;
@@ -2807,6 +2815,7 @@ ${JSON.stringify(lastExecutionDebugData.parsedPlans || [], null, 2)}
 				updateAgenticThought(activeAiMessageBody, thought);
 				
 				updateAgenticLog(logThink, `[Step ${iteration}] Thought formulated.`, "success");
+				activeRunningLog = null;
 				
 				if (isDone || stepPlans.length === 0) {
 					if (logThink) logThink.remove();
@@ -2816,6 +2825,7 @@ ${JSON.stringify(lastExecutionDebugData.parsedPlans || [], null, 2)}
 				
 				log(`Agent proposed ${stepPlans.length} actions in Iteration ${iteration}.`, 'info');
 				const logApply = addAgenticLog(activeAiMessageBody, `Applying and verifying ${stepPlans.length} proposed edits...`, "running");
+				activeRunningLog = logApply;
 				
 				isEditingAutonomously = true;
 				const outcomes = await executeSingleStepEdits(stepPlans, modifications);
@@ -2827,6 +2837,7 @@ ${JSON.stringify(lastExecutionDebugData.parsedPlans || [], null, 2)}
 					const desc = `${out.action} on paragraph #${out.targetIndex}`;
 					addAgenticSubAction(logApply, `${desc}: ${out.reason}`, out.success);
 				});
+				activeRunningLog = null;
 				
 				// Record step in history
 				history.push({
@@ -2872,7 +2883,11 @@ ${JSON.stringify(lastExecutionDebugData.parsedPlans || [], null, 2)}
 
 		} catch (err) {
 			log(`Execution Error: ${err.message}`, 'error');
+			if (activeRunningLog) {
+				updateAgenticLog(activeRunningLog, `Step failed: ${err.message}`, "failed");
+			}
 			addAgenticLog(activeAiMessageBody, `Error during execution: ${err.message}`, "failed");
+			updateAgenticThought(activeAiMessageBody, `Execution aborted: ${err.message}`);
 			setAgenticComplete(activeAiMessageBody, false);
 			
 			lastExecutionDebugData.status = "Failed: " + err.message;
@@ -4409,8 +4424,10 @@ User Request:
 
 	// Unified LLM Requester supporting Groq API
 	async function queryActiveLLM(messages, temperature = 0.1, isJsonMode = false) {
+		const provider = localStorage.getItem('onescript_provider') || 'groq';
+		const timeoutMs = (provider === 'groq') ? 35000 : 120000; // 35s for cloud Groq, 120s for local models
 		const controller = new AbortController();
-		const timeoutId = setTimeout(() => controller.abort(), 25000); // 25 seconds timeout
+		const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
 		try {
 			const provider = localStorage.getItem('onescript_provider') || 'groq';

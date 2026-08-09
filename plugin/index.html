@@ -901,44 +901,34 @@
 			color: var(--accent-cyan);
 		}
 
-		/* Agentic UI Thinking Block & Step Logs */
 		.agent-thinking-card {
-			margin-top: 6px;
-			margin-bottom: 8px;
-			border: 1px solid var(--border-color);
-			border-radius: var(--border-radius-md);
-			background-color: rgba(30, 41, 59, 0.25);
-			overflow: hidden;
+			margin: 8px 0;
+			border-left: 2px solid var(--primary);
+			padding-left: 10px;
 			transition: var(--transition);
 		}
 
 		.agent-thinking-header {
-			padding: 6px 10px;
 			font-size: 10px;
 			font-weight: 600;
-			color: var(--accent, #3b82f6);
-			background-color: rgba(255, 255, 255, 0.02);
+			color: var(--text-muted);
 			display: flex;
-			justify-content: space-between;
 			align-items: center;
+			gap: 6px;
 			cursor: pointer;
 			user-select: none;
-			border-bottom: 1px solid transparent;
 		}
 		
 		.agent-thinking-header:hover {
-			background-color: rgba(255, 255, 255, 0.04);
-		}
-		
-		.agent-thinking-header.expanded {
-			border-bottom-color: var(--border-color);
+			color: var(--text-primary);
 		}
 
 		.agent-thinking-body {
-			padding: 8px 12px;
+			margin-top: 4px;
 			font-size: 10px;
-			line-height: 1.4;
+			line-height: 1.45;
 			color: var(--text-secondary);
+			font-style: italic;
 			font-family: var(--font-sans);
 			max-height: 150px;
 			overflow-y: auto;
@@ -1652,6 +1642,6 @@
 	<!-- System libraries -->
 	<script type="text/javascript" src="./../v1/plugins.js"></script>
 	<script type="text/javascript" src="./../v1/plugins-ui.js"></script>
-	<script src="plugin.js?v=1786251335"></script>
+	<script src="plugin.js?v=1786251655"></script>
 </body>
 </html>
