@@ -1,0 +1,123 @@
+{
+  "templates": [
+    {
+      "name": "IEEE Conference Paper",
+      "description": "Standard double-column layout style for academic and technical papers.",
+      "pageSettings": {
+        "pageWidth": 12240,
+        "pageHeight": 15840,
+        "pageOrientation": "portrait",
+        "marginTop": 1440,
+        "marginBottom": 1440,
+        "marginLeft": 1080,
+        "marginRight": 1080
+      },
+      "rules": {
+        "fontName": "Times New Roman",
+        "title": {
+          "fontSize": 24,
+          "bold": true,
+          "alignment": "center",
+          "spacingAfter": 240
+        },
+        "heading1": {
+          "fontSize": 12,
+          "bold": true,
+          "alignment": "center",
+          "spacingBefore": 240,
+          "spacingAfter": 120,
+          "textCase": "uppercase"
+        },
+        "heading2": {
+          "fontSize": 11,
+          "italic": true,
+          "alignment": "left",
+          "spacingBefore": 180,
+          "spacingAfter": 90
+        },
+        "body": {
+          "fontSize": 10,
+          "alignment": "justify",
+          "lineSpacing": 1.0,
+          "indFirstLine": 360,
+          "spacingAfter": 120
+        }
+      }
+    },
+    {
+      "name": "Formal Business Letter",
+      "description": "Standard block format business correspondence.",
+      "pageSettings": {
+        "pageWidth": 12240,
+        "pageHeight": 15840,
+        "pageOrientation": "portrait",
+        "marginTop": 1440,
+        "marginBottom": 1440,
+        "marginLeft": 1440,
+        "marginRight": 1440
+      },
+      "rules": {
+        "fontName": "Calibri",
+        "body": {
+          "fontSize": 11,
+          "alignment": "left",
+          "lineSpacing": 1.15,
+          "spacingAfter": 180,
+          "indFirstLine": 0
+        },
+        "heading1": {
+          "fontSize": 14,
+          "bold": true,
+          "color": "#1f4e78",
+          "alignment": "left",
+          "spacingBefore": 240,
+          "spacingAfter": 120
+        }
+      }
+    },
+    {
+      "name": "Modern Executive Report",
+      "description": "Modern layout for corporate summaries, proposals, and reports.",
+      "pageSettings": {
+        "pageWidth": 12240,
+        "pageHeight": 15840,
+        "pageOrientation": "portrait",
+        "marginTop": 1440,
+        "marginBottom": 1440,
+        "marginLeft": 1440,
+        "marginRight": 1440
+      },
+      "rules": {
+        "fontName": "Arial",
+        "title": {
+          "fontSize": 20,
+          "bold": true,
+          "color": "#1e40af",
+          "alignment": "left",
+          "spacingAfter": 240
+        },
+        "heading1": {
+          "fontSize": 14,
+          "bold": true,
+          "color": "#1e40af",
+          "alignment": "left",
+          "spacingBefore": 300,
+          "spacingAfter": 120
+        },
+        "body": {
+          "fontSize": 11,
+          "alignment": "justify",
+          "lineSpacing": 1.15,
+          "spacingAfter": 120,
+          "indFirstLine": 0
+        },
+        "table": {
+          "headerShading": "#1e40af",
+          "headerTextColor": "#ffffff",
+          "headerBold": true,
+          "alternatingShading": "#f3f4f6"
+        }
+      }
+    }
+  ]
+}

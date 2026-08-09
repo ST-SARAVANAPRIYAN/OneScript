@@ -1,0 +1,148 @@
+version: "1.0.0"
+title: "ONLYOFFICE Formatting Options & API Call Mappings"
+description: "Dictionary of document styling properties, units, instructions, and ONLYOFFICE JS API calls."
+
+formatting_elements:
+  document_layout:
+    description: "Global document settings (margins, size, section layout)."
+    properties:
+      pageOrientation:
+        type: "string"
+        enum: ["portrait", "landscape"]
+        default: "portrait"
+        onlyoffice_api: "Api.GetDocument().GetDefaultSection().SetPageOrientation(Asc.c_oAscPageOrientation.Landscape)"
+        instructions: "Set to 'landscape' for wide tables or landscape reports; default is 'portrait'."
+      
+      pageSize:
+        type: "string"
+        enum: ["A4", "letter", "legal", "A3"]
+        default: "letter"
+        onlyoffice_api: |
+          // Set Page Size: Letter is 12240 x 15840 dxa, A4 is 11906 x 16838 dxa
+          var section = Api.GetDocument().GetDefaultSection();
+          if (value === 'A4') {
+            section.SetPageSize(11906, 16838);
+          } else if (value === 'letter') {
+            section.SetPageSize(12240, 15840);
+          }
+        instructions: "Specifies page boundaries for the printer layout."
+
+      margins:
+        type: "object"
+        properties:
+          top: { type: "integer", default: 1440 }
+          bottom: { type: "integer", default: 1440 }
+          left: { type: "integer", default: 1440 }
+          right: { type: "integer", default: 1440 }
+        onlyoffice_api: "Api.GetDocument().SetMargins(left, top, right, bottom);"
+        units: "dxa (twips) where 1440 dxa = 1 inch = 72 pt"
+        instructions: "Page margins on all sides. Academic standards usually require 1 inch (1440 dxa) margins."
+
+  paragraph:
+    description: "Styles applied to paragraphs as structural layout elements."
+    properties:
+      alignment:
+        type: "string"
+        enum: ["left", "center", "right", "justify"]
+        onlyoffice_api: "oParagraph.SetJc(value === 'justify' ? 'both' : value);"
+        instructions: "Horizontal text alignment inside the margins. Use center for headings/titles, justify for block body paragraphs."
+      
+      styleName:
+        type: "string"
+        enum: ["Normal", "Heading 1", "Heading 2", "Heading 3", "Title", "Subtitle"]
+        onlyoffice_api: "oParagraph.SetStyle(value);"
+        instructions: "Applies a predefined style template from the ONLYOFFICE document styles table."
+
+      spacingBefore:
+        type: "integer"
+        units: "dxa"
+        onlyoffice_api: "oParagraph.SetSpacingBefore(value);"
+        instructions: "Vertical space above the paragraph. 240 dxa = 12pt."
+
+      spacingAfter:
+        type: "integer"
+        units: "dxa"
+        onlyoffice_api: "oParagraph.SetSpacingAfter(value);"
+        instructions: "Vertical space below the paragraph. 240 dxa = 12pt."
+
+      lineSpacing:
+        type: "number"
+        description: "Spacing between lines within the paragraph."
+        onlyoffice_api: "oParagraph.SetSpacingLine(Math.round(value * 240), 'auto');"
+        units: "Multiplier (e.g. 1.15, 1.5, 2.0)"
+        instructions: "Double space is 2.0. Single space is 1.0. Default is usually 1.15."
+
+      indLeft:
+        type: "integer"
+        units: "dxa"
+        onlyoffice_api: "oParagraph.SetIndLeft(value);"
+        instructions: "Indentation of the entire paragraph from the left margin."
+
+      indFirstLine:
+        type: "integer"
+        units: "dxa"
+        onlyoffice_api: "oParagraph.SetIndFirstLine(value);"
+        instructions: "First-line indent. Common in formal writing/reports (720 dxa = 0.5 inches)."
+
+      shading:
+        type: "string"
+        pattern: "^#[0-9a-fA-F]{6}$"
+        onlyoffice_api: |
+          var hex = value.replace('#', '');
+          var r = parseInt(hex.substring(0,2), 16);
+          var g = parseInt(hex.substring(2,4), 16);
+          var b = parseInt(hex.substring(4,6), 16);
+          oParagraph.SetShd('clear', Api.CreateColorFromRGB(r, g, b));
+        instructions: "Background color of the paragraph container."
+
+  character_run:
+    description: "Styles applied to individual inline text ranges (runs) inside a paragraph."
+    properties:
+      fontName:
+        type: "string"
+        onlyoffice_api: "oRun.SetFontName(value);"
+        instructions: "The typeface family name (e.g. Arial, Times New Roman, Calibri)."
+
+      fontSize:
+        type: "number"
+        units: "half-points"
+        onlyoffice_api: "oRun.SetFontSize(value * 2);"
+        instructions: "Font size in standard points. The ONLYOFFICE API takes half-points, so input 12 will execute SetFontSize(24)."
+
+      color:
+        type: "string"
+        pattern: "^#[0-9a-fA-F]{6}$"
+        onlyoffice_api: |
+          var hex = value.replace('#', '');
+          var r = parseInt(hex.substring(0,2), 16);
+          var g = parseInt(hex.substring(2,4), 16);
+          var b = parseInt(hex.substring(4,6), 16);
+          oRun.SetColor(Api.CreateColorFromRGB(r, g, b));
+        instructions: "The text color hex value."
+
+      bold:
+        type: "boolean"
+        onlyoffice_api: "oRun.SetBold(!!value);"
+        instructions: "Enables or disables bold weight."
+
+      italic:
+        type: "boolean"
+        onlyoffice_api: "oRun.SetItalic(!!value);"
+        instructions: "Enables or disables italic formatting."
+
+      underline:
+        type: "boolean"
+        onlyoffice_api: "oRun.SetUnderline(!!value);"
+        instructions: "Enables or disables standard underline."
+
+      highlight:
+        type: "string"
+        enum: ["none", "yellow", "green", "blue", "cyan", "red", "magenta", "lightGray"]
+        onlyoffice_api: "oRun.SetHighlight(value);"
+        instructions: "Highlights the text background with a specific standard color."
+
+      characterSpacing:
+        type: "integer"
+        units: "twips"
+        onlyoffice_api: "oRun.SetSpacing(value);"
+        instructions: "Spacing between characters. Positive values expand spacing; negative values compress it."

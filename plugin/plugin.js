@@ -385,7 +385,16 @@
 							if (runCount > 0) {
 								var firstRun = p.GetElement(0);
 								if (firstRun) {
-									try { fontName = firstRun.GetFontName() || fontName; } catch(e) {}
+									try {
+										if (typeof firstRun.GetFontFamily === "function") {
+											fontName = firstRun.GetFontFamily() || fontName;
+										} else if (typeof firstRun.GetFontNames === "function") {
+											var names = firstRun.GetFontNames();
+											if (names && names.length > 0) fontName = names[0] || fontName;
+										} else if (typeof firstRun.GetFontName === "function") {
+											fontName = firstRun.GetFontName() || fontName;
+										}
+									} catch(e) {}
 									try { fontSize = (firstRun.GetFontSize() || 22) / 2; } catch(e) {}
 									try { bold = !!firstRun.GetBold(); } catch(e) {}
 									try { italic = !!firstRun.GetItalic(); } catch(e) {}
@@ -1703,6 +1712,7 @@ ${JSON.stringify(lastExecutionDebugData.parsedPlans || [], null, 2)}
 	let isScanning = false;
 	let scanPending = false;
 	let isEditingAutonomously = false;
+	let referenceTemplates = null;
 	async function refreshDocStructureView() {
 		if (isEditingAutonomously) return;
 		if (isScanning) {
@@ -1784,6 +1794,31 @@ ${JSON.stringify(lastExecutionDebugData.parsedPlans || [], null, 2)}
 	refreshStructure.addEventListener('click', () => {
 		refreshDocStructureView();
 	});
+
+	const cleanDefragmentBtn = document.getElementById('clean-defragment-btn');
+	if (cleanDefragmentBtn) {
+		cleanDefragmentBtn.addEventListener('click', async () => {
+			cleanDefragmentBtn.disabled = true;
+			const originalText = cleanDefragmentBtn.innerText;
+			cleanDefragmentBtn.innerText = "Cleaning...";
+			log("Starting manual document defragmentation layout cleanup...", "info");
+			try {
+				const mergeResult = await runDefragmentCommand();
+				log(`Layout cleanup completed: merged ${mergeResult.mergedCount} lines.`, 'success');
+				cleanDefragmentBtn.innerText = "Cleaned! ✓";
+				setTimeout(() => {
+					cleanDefragmentBtn.innerText = originalText;
+					cleanDefragmentBtn.disabled = false;
+				}, 1500);
+				
+				await refreshDocStructureView();
+			} catch(e) {
+				log(`Defragmentation failed: ${e.message}`, "error");
+				cleanDefragmentBtn.innerText = originalText;
+				cleanDefragmentBtn.disabled = false;
+			}
+		});
+	}
 
 	// Toggle view modes (Tree / JSON) in Outline
 	if (toggleViewOutline && toggleViewJson && outlineTreeContainer && structureJson) {
@@ -1963,11 +1998,24 @@ ${JSON.stringify(lastExecutionDebugData.parsedPlans || [], null, 2)}
 		log('Theme adapted to OnlyOffice: ' + theme.type, 'info');
 	};
 
+	function loadReferenceTemplates() {
+		fetch('reference_templates.json')
+			.then(response => response.json())
+			.then(data => {
+				referenceTemplates = data;
+				log('OneScript reference templates loaded successfully.', 'success');
+			})
+			.catch(err => {
+				log('Failed to load reference templates: ' + err.message, 'warning');
+			});
+	}
+
 	// Initialize ONLYOFFICE plugin hooks
 	window.Asc.plugin.init = function() {
 		loadLogFile();
 		log('OneScript initialized.', 'success');
 		loadSettings();
+		loadReferenceTemplates();
 		
 		// Attach to selection change event to dynamically update the JSON structure view instantly!
 		try {
@@ -2211,6 +2259,41 @@ ${JSON.stringify(lastExecutionDebugData.parsedPlans || [], null, 2)}
 		setLoading(true);
 
 		try {
+			// Direct local handler for Defragmentation / Layout cleanup requests
+			const lowerPrompt = prompt.toLowerCase();
+			if (lowerPrompt.indexOf("defragment") !== -1 || 
+			    lowerPrompt.indexOf("merge line") !== -1 || 
+			    lowerPrompt.indexOf("fix broken line") !== -1 || 
+			    lowerPrompt.indexOf("join line") !== -1 || 
+			    lowerPrompt.indexOf("clean layout") !== -1 || 
+			    lowerPrompt.indexOf("restructure paragraph") !== -1) {
+				
+				setStepperStep(0, "done", "Identified Defragment Request");
+				setStepperStep(1, "running", "Executing layout merge in document...");
+				
+				const mergeResult = await runDefragmentCommand();
+				
+				setStepperStep(1, "done", `Merged ${mergeResult.mergedCount} fragmented lines.`);
+				setStepperStep(2, "done", "Finished");
+				setStepperStep(3, "done", "Completed successfully");
+				
+				activeAiMessageBody.innerHTML = `
+					<div class="stepper-success-message" style="padding: 10px; border-radius: 6px; background: var(--success-glow); border: 1px solid var(--success); font-size: 11px; margin-top: 10px;">
+						<span style="font-weight: 600; color: var(--success);">Success!</span> Natively defragmented document layout: merged <strong>${mergeResult.mergedCount}</strong> fragmented lines into continuous paragraphs.
+					</div>
+				`;
+				
+				log(`Successfully merged ${mergeResult.mergedCount} lines.`, 'success');
+				
+				setTimeout(async () => {
+					if (typeof refreshDocStructureView === 'function') {
+						await refreshDocStructureView();
+					}
+				}, 100);
+				
+				return;
+			}
+
 			// LAYER 1: Intent Router
 			const intent = await routeIntent(prompt);
 			lastExecutionDebugData.intent = intent;
@@ -2358,7 +2441,16 @@ ${JSON.stringify(lastExecutionDebugData.parsedPlans || [], null, 2)}
 						var rItalic = false;
 						var rColor = "#000000";
 						
-						try { if (oRun.GetFontName) rFontName = oRun.GetFontName() || rFontName; } catch(e) {}
+						try {
+							if (typeof oRun.GetFontFamily === "function") {
+								rFontName = oRun.GetFontFamily() || rFontName;
+							} else if (typeof oRun.GetFontNames === "function") {
+								var names = oRun.GetFontNames();
+								if (names && names.length > 0) rFontName = names[0] || rFontName;
+							} else if (oRun.GetFontName) {
+								rFontName = oRun.GetFontName() || rFontName;
+							}
+						} catch(e) {}
 						try { if (oRun.GetFontSize) rFontSize = oRun.GetFontSize() || rFontSize; } catch(e) {}
 						try { if (oRun.GetBold) rBold = oRun.GetBold() || rBold; } catch(e) {}
 						try { if (oRun.GetItalic) rItalic = oRun.GetItalic() || rItalic; } catch(e) {}
@@ -2387,6 +2479,71 @@ ${JSON.stringify(lastExecutionDebugData.parsedPlans || [], null, 2)}
 			}
 		} catch(e) {}
 		return runsData;
+	}
+
+	function runDefragmentCommand() {
+		return new Promise((resolve) => {
+			window.Asc.plugin.callCommand(function() {
+				var oDocument = Api.GetDocument();
+				var count = oDocument.GetElementsCount();
+				var mergedCount = 0;
+				
+				for (var i = count - 2; i >= 0; i--) {
+					try {
+						var pCurrent = oDocument.GetElement(i);
+						var pNext = oDocument.GetElement(i + 1);
+						
+						if (pCurrent && pNext && pCurrent.GetClassType() === "paragraph" && pNext.GetClassType() === "paragraph") {
+							var textCurrent = pCurrent.GetText() || "";
+							var textNext = pNext.GetText() || "";
+							
+							var cleanCurrent = textCurrent.trim();
+							var cleanNext = textNext.trim();
+							
+							if (cleanCurrent.length > 0 && cleanNext.length > 0) {
+								var lastChar = cleanCurrent.charAt(cleanCurrent.length - 1);
+								var isSentenceEnd = (lastChar === '.' || lastChar === '?' || lastChar === '!' || lastChar === ':');
+								
+								var isNextHeading = false;
+								if (/^[A-Z]\.\s+/.test(cleanNext) || /^[I|V|X]+\.\s+/.test(cleanNext) || /^\d+(\.\d+)*\.?\s+/.test(cleanNext) || cleanNext.startsWith("•") || cleanNext.startsWith("-")) {
+									isNextHeading = true;
+								}
+								
+								if (!isSentenceEnd && !isNextHeading) {
+									var firstChar = cleanNext.charAt(0);
+									if (lastChar !== ' ' && lastChar !== '\t' && firstChar !== ' ' && firstChar !== '\t') {
+										pCurrent.AddText(" ");
+									}
+									
+									var runCount = pNext.GetElementsCount();
+									if (runCount > 0) {
+										for (var r = 0; r < runCount; r++) {
+											var oRun = pNext.GetElement(r);
+											if (oRun && oRun.GetClassType() === "run") {
+												var rText = oRun.GetText() || "";
+												var newRun = pCurrent.AddText(rText);
+												try {
+													var tp = oRun.GetTextPr();
+													if (tp && newRun.SetTextPr) newRun.SetTextPr(tp);
+												} catch(eRunStyle) {}
+											}
+										}
+									} else {
+										pCurrent.AddText(textNext);
+									}
+									
+									oDocument.RemoveElement(i + 1);
+									mergedCount++;
+								}
+							}
+						}
+					} catch(eLoop) {}
+				}
+				return { mergedCount: mergedCount };
+			}, false, true, function(res) {
+				resolve(res || { mergedCount: 0 });
+			});
+		});
 	}
 
 	// ==========================================
@@ -2435,15 +2592,22 @@ Example response: {"intent": "rewrite"}`;
 	// LAYER 3 & 4: Planner LLM Layer with Rule Injection
 	async function queryPlannerLLM(docData, prompt, intent) {
 		const ruleset = RULES[intent] || RULES.rewrite;
+		
+		var templatesContext = "";
+		if (referenceTemplates && referenceTemplates.templates) {
+			templatesContext = "\n\nREFERENCE DESIGN TEMPLATES (Use these guidelines/defaults to match styles appropriately):\n" + JSON.stringify(referenceTemplates.templates, null, 2);
+		}
+
 		const systemMessage = `You are a professional document planner assistant. Your job is to analyze the provided document context and user request, and generate a high-level logical Action Plan.
 
 You must NEVER generate OnlyOffice API commands directly (like Select(), AddElement(), etc.).
 You must ONLY output valid JSON containing a single "plans" key holding an array of high-level action objects.
 
 CRITICAL FORMATTING & ACTION RULES:
-1. You MUST ONLY use the allowed actions: "rewrite", "change_font", "change_color", "create_paragraph", "delete_paragraph", "paste_html", "make_list", "change_indent", "table_action". Do NOT invent or use other actions like "move_section", "rename_section", "move_paragraph", etc.
+1. You MUST ONLY use the allowed actions: "rewrite", "change_font", "change_color", "create_paragraph", "delete_paragraph", "paste_html", "make_list", "change_indent", "table_action", "change_page". Do NOT invent or use other actions like "move_section", "rename_section", "move_paragraph", etc.
 2. To move or reorganize a section, use a sequence of "delete_paragraph" actions for the original paragraphs, and "paste_html" or "create_paragraph" actions to recreate/insert them at the destination index.
 3. When creating/inserting new paragraphs or sections, you MUST style them explicitly (via properties like fontName, fontSize, color, bold, alignment, spacing) to match the surrounding paragraphs in the document context. Do not leave styling default/blank.
+4. To format, highlight, color, bold, or italicize specific words or phrases (rather than the entire paragraph), you MUST use the "rewrite" action for that paragraph and wrap the targeted words in HTML tags inside the "newText" property (e.g., use <mark>IEEE</mark> to highlight the word IEEE, <b>word</b> for bold, <i>word</i> for italic, or <span style="background-color:yellow;">word</span>). Do not use paragraph-level properties if you only want to style specific words, as that would format the entire paragraph text.
 
 CRITICAL CARET/CURSOR ANCHORING RULES:
 1. If the user request asks to add, insert, generate, or create content (such as paragraphs, headings, lists, or tables) and a valid "cursorIndex" (>= 0) is specified in the document metadata under "metadata.cursorIndex", you MUST default to inserting/creating the content directly at or after the "cursorIndex" (i.e., targetIndex = cursorIndex).
@@ -2454,9 +2618,9 @@ Every plan action must follow this exact structure:
 {
   "plans": [
     {
-      "action": "rewrite" | "change_font" | "change_color" | "create_paragraph" | "delete_paragraph" | "paste_html" | "make_list" | "change_indent" | "table_action",
-      "targetIndex": 5, // index of target paragraph or table
-      "subAction": "create" | "add_row" | "add_column" | "delete_row" | "delete_column" | "merge_cells" | "cell_shading" | "set_cell_text", // ONLY for "table_action"
+      "action": "rewrite" | "change_font" | "change_color" | "create_paragraph" | "delete_paragraph" | "paste_html" | "make_list" | "change_indent" | "table_action" | "change_page",
+      "targetIndex": 5, // index of target paragraph or table, or -1 for document/page layout actions
+      "subAction": "create" | "add_row" | "add_column" | "delete_row" | "delete_column" | "merge_cells" | "cell_shading" | "cell_borders" | "set_cell_text", // ONLY for "table_action"
       "properties": {
         "newText": "Rewritten or newly created plain text here...",
         "html": "<p style='font-family:Arial;font-size:12pt;'>Styled HTML content for paste_html...</p>",
@@ -2486,19 +2650,33 @@ Every plan action must follow this exact structure:
         "indRight": 720,
         "indFirstLine": 360,
         
+        // Layout/Page settings:
+        "pageOrientation": "portrait" | "landscape",
+        "pageWidth": 12240, // in dxa
+        "pageHeight": 15840, // in dxa
+        "marginLeft": 1440, // in dxa
+        "marginRight": 1440, // in dxa
+        "marginTop": 1440, // in dxa
+        "marginBottom": 1440, // in dxa
+        "columnsCount": 2,
+        
         // Table properties (ONLY for table_action):
         "rows": 3, // for subAction 'create'
         "cols": 3, // for subAction 'create'
         "rowIndex": 0, // for add_row or delete_row
         "colIndex": 0, // for delete_column
         "before": true, // for add_row
-        "cells": [[0, 0], [0, 1]], // coordinates [row, col] for merge_cells, cell_shading, or set_cell_text
+        "cells": [[0, 0], [0, 1]], // coordinates [row, col] for merge_cells, cell_shading, cell_borders, or set_cell_text
         "color": "#eff6ff", // shading color for cell_shading
+        "borderStyle": "single" | "double" | "dotted" | "dashed" | "none", // for cell_borders
+        "borderSize": 8, // in eighths of a point (e.g. 8 for 1pt) - for cell_borders
+        "borderColor": "#000000", // hex color - for cell_borders
         "cellData": [["header1", "header2"], ["val1", "val2"]] // 2D array of strings to populate table cells directly on subAction 'create'
       }
     }
   ]
 }
+${templatesContext}
 
 Specific rules for this intent [${intent.toUpperCase()}]:
 ${ruleset.instructions}
@@ -2531,7 +2709,10 @@ User Request:
 				var targetIndex = Asc.scope.targetIndex;
 				var oDocument = Api.GetDocument();
 				var count = oDocument.GetElementsCount();
-				if (targetIndex >= count || targetIndex < 0) {
+				if (count > 0) {
+					if (targetIndex >= count) targetIndex = count - 1;
+					if (targetIndex < 0) targetIndex = 0;
+				} else {
 					return null;
 				}
 				var oParagraph = oDocument.GetElement(targetIndex);
@@ -2584,6 +2765,58 @@ User Request:
 								}
 							} catch(e) {}
 						}
+					}
+					
+					// 3. From Paragraph Range properties (captures local overrides on the text segment)
+					try {
+						if ((fontName === "Calibri" || !fontName || !fontSize) && typeof oParagraph.GetRange === "function") {
+							var oRange = oParagraph.GetRange();
+							if (oRange && typeof oRange.GetTextPr === "function") {
+								var rTp = oRange.GetTextPr();
+								if (rTp) {
+									if ((fontName === "Calibri" || !fontName) && typeof rTp.GetFontFamily === "function") {
+										var rFamily = rTp.GetFontFamily();
+										if (rFamily) fontName = rFamily;
+									}
+									if ((fontName === "Calibri" || !fontName) && typeof rTp.GetFontName === "function") {
+										var rName = rTp.GetFontName();
+										if (rName) fontName = rName;
+									}
+									if (!fontSize && typeof rTp.GetFontSize === "function") {
+										var rSize = rTp.GetFontSize();
+										if (rSize) fontSize = rSize;
+									}
+									if (!bold && typeof rTp.GetBold === "function") {
+										bold = !!rTp.GetBold();
+									}
+									if (!underline && typeof rTp.GetUnderline === "function") {
+										underline = !!rTp.GetUnderline();
+									}
+								}
+							}
+						}
+					} catch(eRange) {}
+
+					if ((fontName === "Calibri" || !fontName || !fontSize) && typeof oParagraph.GetTextPr === "function") {
+						try {
+							var pTp = oParagraph.GetTextPr();
+							if (pTp) {
+								if ((fontName === "Calibri" || !fontName) && typeof pTp.GetFontFamily === "function") {
+									var pFamily = pTp.GetFontFamily();
+									if (pFamily) fontName = pFamily;
+								}
+								if (!fontSize && typeof pTp.GetFontSize === "function") {
+									var pSize = pTp.GetFontSize();
+									if (pSize) fontSize = pSize;
+								}
+								if (!bold && typeof pTp.GetBold === "function") {
+									bold = !!pTp.GetBold();
+								}
+								if (!underline && typeof pTp.GetUnderline === "function") {
+									underline = !!pTp.GetUnderline();
+								}
+							}
+						} catch(e) {}
 					}
 				} catch(e) {}
 
@@ -2640,7 +2873,8 @@ User Request:
 
 		if (actionName === 'make_list' || actionName === 'makeList' ||
 		    actionName === 'change_indent' || actionName === 'changeIndent' ||
-		    actionName === 'table_action' || actionName === 'tableAction') {
+		    actionName === 'table_action' || actionName === 'tableAction' ||
+		    actionName === 'change_page' || actionName === 'changePage') {
 			return { success: true };
 		}
 
@@ -3093,7 +3327,7 @@ User Request:
 				var selectedLines = [];
 				
 				// Force entire document mode if prompt indicates a document-wide intent
-				var forceEntireDoc = /entire\s+doc|whole\s+doc|all\s+sections|entire\s+document|whole\s+document|format\s+everything|all\s+paragraphs/i.test(prompt);
+				var forceEntireDoc = /entire\s+doc|whole\s+doc|all\s+sections|entire\s+document|whole\s+document|format\s+everything|all\s+paragraphs|all\s+places|all\s+instances|everywhere|all\s+occurrences/i.test(prompt);
 				var hasHighlight = false;
 				if (selectionHtml) {
 					hasHighlight = selectionHtml.trim().length > 0;
@@ -3187,6 +3421,7 @@ User Request:
 							try { if (firstSection.GetMarginRight) pageSettings.marginRight = firstSection.GetMarginRight(); } catch(e) {}
 							try { if (firstSection.GetMarginTop) pageSettings.marginTop = firstSection.GetMarginTop(); } catch(e) {}
 							try { if (firstSection.GetMarginBottom) pageSettings.marginBottom = firstSection.GetMarginBottom(); } catch(e) {}
+							try { if (typeof firstSection.GetColumnsCount === "function") pageSettings.columnsCount = firstSection.GetColumnsCount(); } catch(e) {}
 						}
 					} catch(ePage) {}
 				}
@@ -3511,16 +3746,53 @@ User Request:
 								
 								try {
 									var rowCount = oElement.GetRowsCount();
+									tableJSON.rowsCount = rowCount;
+									
+									// Try to get table-level styles
+									try {
+										var style = oElement.GetStyle();
+										if (style && typeof style.GetName === "function") {
+											tableJSON.styleName = style.GetName();
+										}
+									} catch(eSt) {}
+									try {
+										if (typeof oElement.GetWidth === "function") {
+											tableJSON.width = oElement.GetWidth();
+										}
+									} catch(eW) {}
+
 									var rowLimit = Math.min(rowCount, 15);
 									for (var r = 0; r < rowLimit; r++) {
 										var oRow = oElement.GetRow(r);
 										var cellsJSON = [];
+										var rowJSON = {
+											rowIndex: r,
+											cells: cellsJSON
+										};
+
 										if (oRow) {
+											// Row properties
+											try {
+												if (typeof oRow.GetHeight === "function") {
+													rowJSON.height = oRow.GetHeight();
+												}
+												if (typeof oRow.GetCantSplit === "function") {
+													rowJSON.cantSplit = oRow.GetCantSplit();
+												}
+												if (typeof oRow.GetHeader === "function") {
+													rowJSON.isHeader = oRow.GetHeader();
+												}
+											} catch(eRowProp) {}
+
 											var cellCount = oRow.GetCellsCount();
+											if (r === 0) {
+												tableJSON.colsCount = cellCount;
+											}
 											var cellLimit = Math.min(cellCount, 8);
 											for (var c = 0; c < cellLimit; c++) {
 												var oCell = oRow.GetCell(c);
 												var cellText = "";
+												var cellStyle = {};
 												if (oCell) {
 													var cellParagraphs = oCell.GetContent().GetAllParagraphs();
 													var pTexts = [];
@@ -3528,17 +3800,45 @@ User Request:
 														pTexts.push(cellParagraphs[p].GetText() || "");
 													}
 													cellText = pTexts.join("\n");
+
+													// Extract Cell Background Color
+													try {
+														if (typeof oCell.GetBackgroundColor === "function") {
+															var bg = oCell.GetBackgroundColor();
+															if (bg && typeof bg.GetHex === "function") {
+																var bgHex = bg.GetHex();
+																if (bgHex) cellStyle.shading = bgHex;
+															}
+														}
+													} catch(eBg) {}
+													
+													// Extract Cell Width
+													try {
+														if (typeof oCell.GetWidth === "function") {
+															cellStyle.width = oCell.GetWidth();
+														}
+													} catch(eCellW) {}
+
+													// Extract Cell Vertical Alignment
+													try {
+														if (typeof oCell.GetVerticalAlign === "function") {
+															cellStyle.verticalAlign = oCell.GetVerticalAlign();
+														}
+													} catch(eCellVA) {}
 												}
-												cellsJSON.push({
+
+												var cellJSON = {
 													cellIndex: c,
 													text: cellText
-												});
+												};
+												
+												if (Object.keys(cellStyle).length > 0) {
+													cellJSON.style = cellStyle;
+												}
+												cellsJSON.push(cellJSON);
 											}
 										}
-										tableJSON.rows.push({
-											rowIndex: r,
-											cells: cellsJSON
-										});
+										tableJSON.rows.push(rowJSON);
 									}
 								} catch(eTable) {}
 								
@@ -3877,6 +4177,152 @@ User Request:
 							
 							var parseAndApplyTextWithTags = function(oPar, htmlStr, defFont, defSize, defBold, defItalic, defUnderline, defStrikeout, defColorHex, defHighlight, pProps) {
 								try { oPar.RemoveAllElements(); } catch(e) {}
+								
+								function applyFormatToRun(oRun, formatState) {
+									if (!oRun) return;
+									
+									// 1. Direct ApiRun styling properties
+									try {
+										if (formatState.fontName) {
+											if (typeof oRun.SetFontName === "function") oRun.SetFontName(formatState.fontName);
+										}
+										if (formatState.fontSize) {
+											if (typeof oRun.SetFontSize === "function") oRun.SetFontSize(formatState.fontSize);
+										}
+										if (typeof oRun.SetBold === "function") oRun.SetBold(!!formatState.bold);
+										if (typeof oRun.SetItalic === "function") oRun.SetItalic(!!formatState.italic);
+										if (typeof oRun.SetUnderline === "function") oRun.SetUnderline(!!formatState.underline);
+										if (typeof oRun.SetStrikeout === "function") oRun.SetStrikeout(!!formatState.strikeout);
+										if (typeof oRun.SetDoubleStrikeout === "function") oRun.SetDoubleStrikeout(!!formatState.doubleStrikeout);
+										if (typeof oRun.SetSmallCaps === "function") oRun.SetSmallCaps(!!formatState.smallCaps);
+										if (typeof oRun.SetCaps === "function") oRun.SetCaps(!!formatState.caps);
+										if (typeof oRun.SetSubscript === "function") oRun.SetSubscript(!!formatState.subscript);
+										if (typeof oRun.SetSuperscript === "function") oRun.SetSuperscript(!!formatState.superscript);
+										if (formatState.characterSpacing && typeof oRun.SetSpacing === "function") oRun.SetSpacing(formatState.characterSpacing);
+										
+										if (formatState.highlight) {
+											var hl = formatState.highlight.toLowerCase().trim();
+											var mappedHl = "none";
+											if (hl === "none" || hl === "null" || hl === "default") mappedHl = "none";
+											else if (hl.indexOf("yellow") !== -1 || hl === "#ffff00") mappedHl = "yellow";
+											else if (hl.indexOf("green") !== -1 || hl === "#00ff00" || hl === "#008000") mappedHl = "green";
+											else if (hl.indexOf("blue") !== -1 || hl === "#0000ff") mappedHl = "blue";
+											else if (hl.indexOf("cyan") !== -1 || hl.indexOf("aqua") !== -1 || hl === "#00ffff") mappedHl = "cyan";
+											else if (hl.indexOf("red") !== -1 || hl === "#ff0000") mappedHl = "red";
+											else if (hl.indexOf("magenta") !== -1 || hl === "#ff00ff") mappedHl = "magenta";
+											else if (hl.indexOf("gray") !== -1 || hl.indexOf("grey") !== -1 || hl === "#808080") mappedHl = "lightGray";
+											else mappedHl = hl;
+											if (typeof oRun.SetHighlight === "function") oRun.SetHighlight(mappedHl);
+										}
+										
+										if (formatState.color) {
+											var hex = String(formatState.color).replace('#', '').trim();
+											if (/^[0-9a-fA-F]{6}$/.test(hex)) {
+												var red = parseInt(hex.substring(0, 2), 16);
+												var green = parseInt(hex.substring(2, 4), 16);
+												var blue = parseInt(hex.substring(4, 6), 16);
+												if (typeof oRun.SetColor === "function") {
+													try { oRun.SetColor(red, green, blue); } catch(eC1) {}
+													try { oRun.SetColor(Api.CreateColorFromRGB(red, green, blue)); } catch(eC2) {}
+												}
+											} else {
+												var namedColors = {
+													"red": [255, 0, 0], "green": [0, 128, 0], "blue": [0, 0, 255],
+													"yellow": [255, 255, 0], "black": [0, 0, 0], "white": [255, 255, 255],
+													"gray": [128, 128, 128], "purple": [128, 0, 128], "orange": [255, 165, 0]
+												};
+												if (namedColors[hex.toLowerCase()]) {
+													var rgb = namedColors[hex.toLowerCase()];
+													if (typeof oRun.SetColor === "function") {
+														try { oRun.SetColor(rgb[0], rgb[1], rgb[2]); } catch(eC3) {}
+														try { oRun.SetColor(Api.CreateColorFromRGB(rgb[0], rgb[1], rgb[2])); } catch(eC4) {}
+													}
+												}
+											}
+										}
+									} catch(eRunDirect) {}
+
+									// 2. Fallback to ApiRange transient/selection properties
+									var oRunRange = oRun;
+									try {
+										var r = oRun.GetRange();
+										if (r) oRunRange = r;
+									} catch(e) {}
+									
+									if (formatState.fontName) {
+										try { if (oRunRange.SetFontFamily) oRunRange.SetFontFamily(formatState.fontName); } catch(e) {}
+										try { if (oRunRange.SetFontName) oRunRange.SetFontName(formatState.fontName); } catch(e) {}
+									}
+									if (formatState.fontSize) {
+										try { if (oRunRange.SetFontSize) oRunRange.SetFontSize(formatState.fontSize); } catch(e) {}
+									}
+									try { if (oRunRange.SetBold) oRunRange.SetBold(!!formatState.bold); } catch(e) {}
+									try { if (oRunRange.SetItalic) oRunRange.SetItalic(!!formatState.italic); } catch(e) {}
+									try { if (oRunRange.SetUnderline) oRunRange.SetUnderline(!!formatState.underline); } catch(e) {}
+									try { if (oRunRange.SetStrikeout) oRunRange.SetStrikeout(!!formatState.strikeout); } catch(e) {}
+									try { if (oRunRange.SetDoubleStrikeout) oRunRange.SetDoubleStrikeout(!!formatState.doubleStrikeout); } catch(e) {}
+									try { if (oRunRange.SetSmallCaps) oRunRange.SetSmallCaps(!!formatState.smallCaps); } catch(e) {}
+									try { if (oRunRange.SetCaps) oRunRange.SetCaps(!!formatState.caps); } catch(e) {}
+									try { if (oRunRange.SetSubscript) oRunRange.SetSubscript(!!formatState.subscript); } catch(e) {}
+									try { if (oRunRange.SetSuperscript) oRunRange.SetSuperscript(!!formatState.superscript); } catch(e) {}
+									try { if (formatState.characterSpacing && oRunRange.SetSpacing) oRunRange.SetSpacing(formatState.characterSpacing); } catch(e) {}
+									
+									if (formatState.highlight) {
+										try {
+											var hl = formatState.highlight.toLowerCase().trim();
+											var mappedHl = "none";
+											if (hl === "none" || hl === "null" || hl === "default") mappedHl = "none";
+											else if (hl.indexOf("yellow") !== -1 || hl === "#ffff00") mappedHl = "yellow";
+											else if (hl.indexOf("green") !== -1 || hl === "#00ff00" || hl === "#008000") mappedHl = "green";
+											else if (hl.indexOf("blue") !== -1 || hl === "#0000ff") mappedHl = "blue";
+											else if (hl.indexOf("cyan") !== -1 || hl.indexOf("aqua") !== -1 || hl === "#00ffff") mappedHl = "cyan";
+											else if (hl.indexOf("red") !== -1 || hl === "#ff0000") mappedHl = "red";
+											else if (hl.indexOf("magenta") !== -1 || hl === "#ff00ff") mappedHl = "magenta";
+											else if (hl.indexOf("gray") !== -1 || hl === "#grey" || hl === "#808080") mappedHl = "lightGray";
+											else mappedHl = hl;
+											
+											try { if (oRunRange.SetHighlight) oRunRange.SetHighlight(mappedHl); } catch(e) {}
+											
+											if (typeof oRunRange.GetTextPr === "function" && typeof oRunRange.SetTextPr === "function") {
+												try {
+													var tp = oRunRange.GetTextPr();
+													if (tp && tp.SetHighlight) {
+														tp.SetHighlight(mappedHl);
+														oRunRange.SetTextPr(tp);
+													}
+												} catch(eTp) {}
+											}
+										} catch(eHighlight) {}
+									}
+									
+									if (formatState.color) {
+										try {
+											var hex = String(formatState.color).replace('#', '').trim();
+											if (/^[0-9a-fA-F]{6}$/.test(hex)) {
+												var red = parseInt(hex.substring(0, 2), 16);
+												var green = parseInt(hex.substring(2, 4), 16);
+												var blue = parseInt(hex.substring(4, 6), 16);
+												try { oRunRange.SetColor(red, green, blue); } catch(eColor) {}
+												try {
+													var colorObj = Api.CreateColorFromRGB(red, green, blue);
+													oRunRange.SetColor(colorObj);
+												} catch(eColorRGB) {}
+											} else {
+												var namedColors = {
+													"red": [255, 0, 0], "green": [0, 128, 0], "blue": [0, 0, 255],
+													"yellow": [255, 255, 0], "black": [0, 0, 0], "white": [255, 255, 255],
+													"gray": [128, 128, 128], "purple": [128, 0, 128], "orange": [255, 165, 0]
+												};
+												if (namedColors[hex.toLowerCase()]) {
+													var rgb = namedColors[hex.toLowerCase()];
+													try { oRunRange.SetColor(rgb[0], rgb[1], rgb[2]); } catch(eC) {}
+													try { oRunRange.SetColor(Api.CreateColorFromRGB(rgb[0], rgb[1], rgb[2])); } catch(eC) {}
+												}
+											}
+										} catch(eColorOuter) {}
+									}
+								}
+
 								if (htmlStr) {
 									htmlStr = htmlStr
 										.replace(/\*\*(.*?)\*\*/g, '<b>$1</b>')
@@ -3907,50 +4353,7 @@ User Request:
 									var oRun = null;
 									try { oRun = oPar.AddText(""); } catch(eText) {}
 									if (oRun) {
-										if (formatState.fontName) {
-											try { oRun.SetFontFamily(formatState.fontName); } catch(e) {}
-											try { oRun.SetFontName(formatState.fontName); } catch(e) {}
-										}
-										if (formatState.fontSize) {
-											try { oRun.SetFontSize(formatState.fontSize); } catch(e) {}
-										}
-										try { oRun.SetBold(!!formatState.bold); } catch(e) {}
-										try { oRun.SetItalic(!!formatState.italic); } catch(e) {}
-										try { oRun.SetUnderline(!!formatState.underline); } catch(e) {}
-										try { oRun.SetStrikeout(!!formatState.strikeout); } catch(e) {}
-										try { oRun.SetDoubleStrikeout(!!formatState.doubleStrikeout); } catch(e) {}
-										try { oRun.SetSmallCaps(!!formatState.smallCaps); } catch(e) {}
-										try { oRun.SetCaps(!!formatState.caps); } catch(e) {}
-										try { oRun.SetSubscript(!!formatState.subscript); } catch(e) {}
-										try { oRun.SetSuperscript(!!formatState.superscript); } catch(e) {}
-										try { if (formatState.characterSpacing) oRun.SetSpacing(formatState.characterSpacing); } catch(e) {}
-										if (formatState.highlight) {
-											try {
-												var hl = formatState.highlight.toLowerCase().trim();
-												if (hl === "none" || hl === "null" || hl === "default") oRun.SetHighlight("none");
-												else if (hl.indexOf("yellow") !== -1 || hl === "#ffff00") oRun.SetHighlight("yellow");
-												else if (hl.indexOf("green") !== -1 || hl === "#00ff00" || hl === "#008000") oRun.SetHighlight("green");
-												else if (hl.indexOf("blue") !== -1 || hl === "#0000ff") oRun.SetHighlight("blue");
-												else if (hl.indexOf("cyan") !== -1 || hl.indexOf("aqua") !== -1 || hl === "#00ffff") oRun.SetHighlight("cyan");
-												else if (hl.indexOf("red") !== -1 || hl === "#ff0000") oRun.SetHighlight("red");
-												else if (hl.indexOf("magenta") !== -1 || hl === "#ff00ff") oRun.SetHighlight("magenta");
-												else if (hl.indexOf("gray") !== -1 || hl.indexOf("grey") !== -1 || hl === "#808080") oRun.SetHighlight("lightGray");
-												else oRun.SetHighlight(hl);
-											} catch(eHighlight) {}
-										}
-										if (formatState.color) {
-											try {
-												var hex = String(formatState.color).replace('#', '').trim();
-												if (/^[0-9a-fA-F]{6}$/.test(hex)) {
-													var red = parseInt(hex.substring(0, 2), 16);
-													var green = parseInt(hex.substring(2, 4), 16);
-													var blue = parseInt(hex.substring(4, 6), 16);
-													try { oRun.SetColor(Api.CreateColorFromRGB(red, green, blue)); } catch(eColor) {
-														try { oRun.SetColor(red, green, blue); } catch(errHex) {}
-													}
-												}
-											} catch(eColorOuter) {}
-										}
+										applyFormatToRun(oRun, formatState);
 									}
 									return;
 								}
@@ -3974,7 +4377,7 @@ User Request:
 												newState.italic = true;
 											} else if (tagLower.indexOf("<u") === 0) {
 												newState.underline = true;
-											} else if (tagLower.indexOf("<strike") === 0 || tagLower.indexOf("<del") === 0 || tagLower.indexOf("<s") === 0) {
+											} else if (tagLower.indexOf("<strike") === 0 || tagLower.indexOf("<del") === 0 || /^<s[> \/]/i.test(tagLower)) {
 												newState.strikeout = true;
 											} else if (tagLower.indexOf("<sub>") === 0) {
 												newState.subscript = true;
@@ -4059,7 +4462,7 @@ User Request:
 																var numVal = parseFloat(propVal);
 																if (propVal.indexOf('pt') !== -1) {
 																	newState.characterSpacing = Math.round(numVal * 20);
-																} else if (propVal.indexOf('px') !== -1) {
+								} else if (propVal.indexOf('px') !== -1) {
 																	newState.characterSpacing = Math.round(numVal * 15);
 																} else {
 																	newState.characterSpacing = Math.round(numVal);
@@ -4096,60 +4499,7 @@ User Request:
 										var oRun = null;
 										try { oRun = oPar.AddText(decText); } catch(eText) {}
 										if (oRun) {
-											if (formatState.fontName) {
-												try { oRun.SetFontFamily(formatState.fontName); } catch(e) {}
-												try { oRun.SetFontName(formatState.fontName); } catch(e) {}
-											}
-											if (formatState.fontSize) {
-												try { oRun.SetFontSize(formatState.fontSize); } catch(e) {}
-											}
-											try { oRun.SetBold(!!formatState.bold); } catch(e) {}
-											try { oRun.SetItalic(!!formatState.italic); } catch(e) {}
-											try { oRun.SetUnderline(!!formatState.underline); } catch(e) {}
-											try { oRun.SetStrikeout(!!formatState.strikeout); } catch(e) {}
-											try { oRun.SetDoubleStrikeout(!!formatState.doubleStrikeout); } catch(e) {}
-											try { oRun.SetSmallCaps(!!formatState.smallCaps); } catch(e) {}
-											try { oRun.SetCaps(!!formatState.caps); } catch(e) {}
-											try { oRun.SetSubscript(!!formatState.subscript); } catch(e) {}
-											try { oRun.SetSuperscript(!!formatState.superscript); } catch(e) {}
-											try { if (formatState.characterSpacing) oRun.SetSpacing(formatState.characterSpacing); } catch(e) {}
-											if (formatState.highlight) {
-												try {
-													var hl = formatState.highlight.toLowerCase().trim();
-													if (hl === "none" || hl === "null" || hl === "default") oRun.SetHighlight("none");
-													else if (hl.indexOf("yellow") !== -1 || hl === "#ffff00") oRun.SetHighlight("yellow");
-													else if (hl.indexOf("green") !== -1 || hl === "#00ff00" || hl === "#008000") oRun.SetHighlight("green");
-													else if (hl.indexOf("blue") !== -1 || hl === "#0000ff") oRun.SetHighlight("blue");
-													else if (hl.indexOf("cyan") !== -1 || hl.indexOf("aqua") !== -1 || hl === "#00ffff") oRun.SetHighlight("cyan");
-													else if (hl.indexOf("red") !== -1 || hl === "#ff0000") oRun.SetHighlight("red");
-													else if (hl.indexOf("magenta") !== -1 || hl === "#ff00ff") oRun.SetHighlight("magenta");
-													else if (hl.indexOf("gray") !== -1 || hl.indexOf("grey") !== -1 || hl === "#808080") oRun.SetHighlight("lightGray");
-													else oRun.SetHighlight(hl);
-												} catch(eHighlight) {}
-											}
-											if (formatState.color) {
-												try {
-													var hex = String(formatState.color).replace('#', '').trim();
-													if (/^[0-9a-fA-F]{6}$/.test(hex)) {
-														var red = parseInt(hex.substring(0, 2), 16);
-														var green = parseInt(hex.substring(2, 4), 16);
-														var blue = parseInt(hex.substring(4, 6), 16);
-														try { oRun.SetColor(Api.CreateColorFromRGB(red, green, blue)); } catch(eColor) {
-															try { oRun.SetColor(red, green, blue); } catch(errHex) {}
-														}
-													} else {
-														var namedColors = {
-															"red": [255, 0, 0], "green": [0, 128, 0], "blue": [0, 0, 255],
-															"yellow": [255, 255, 0], "black": [0, 0, 0], "white": [255, 255, 255],
-															"gray": [128, 128, 128], "purple": [128, 0, 128], "orange": [255, 165, 0]
-														};
-														if (namedColors[hex.toLowerCase()]) {
-															var rgb = namedColors[hex.toLowerCase()];
-															oRun.SetColor(Api.CreateColorFromRGB(rgb[0], rgb[1], rgb[2]));
-														}
-													}
-												} catch(eColorOuter) {}
-											}
+											applyFormatToRun(oRun, formatState);
 										}
 									}
 								}
@@ -4192,7 +4542,9 @@ User Request:
 											try { if (typeof firstRun.GetTextPr === "function") textPr = firstRun.GetTextPr(); } catch(e) {}
 											if (textPr) {
 												try { 
-													if (typeof textPr.GetFontName === "function") {
+													if (typeof textPr.GetFontFamily === "function") {
+														origFont = textPr.GetFontFamily() || origFont;
+													} else if (typeof textPr.GetFontName === "function") {
 														origFont = textPr.GetFontName() || origFont;
 													}
 												} catch(e) {}
@@ -4217,6 +4569,39 @@ User Request:
 													}
 												} catch(e) {}
 											}
+										}
+									}
+									
+									if ((origFont === "Calibri" || !origFont) && typeof oRefParagraph.GetTextPr === "function") {
+										var pTp = oRefParagraph.GetTextPr();
+										if (pTp) {
+											try {
+												if (typeof pTp.GetFontFamily === "function") {
+													origFont = pTp.GetFontFamily() || origFont;
+												} else if (typeof pTp.GetFontName === "function") {
+													origFont = pTp.GetFontName() || origFont;
+												}
+											} catch(e) {}
+											try { if (typeof pTp.GetFontSize === "function") origSize = pTp.GetFontSize() || origSize; } catch(e) {}
+											try { if (typeof pTp.GetBold === "function") origBold = pTp.GetBold() || origBold; } catch(e) {}
+											try { if (typeof pTp.GetItalic === "function") origItalic = pTp.GetItalic() || origItalic; } catch(e) {}
+											try { if (typeof pTp.GetUnderline === "function") origUnderline = !!pTp.GetUnderline(); } catch(e) {}
+											try { if (typeof pTp.GetStrikeout === "function") origStrikeout = !!pTp.GetStrikeout(); } catch(e) {}
+											try {
+												if (typeof pTp.GetColor === "function") {
+													var c = pTp.GetColor();
+													if (c && typeof c.GetHex === "function") origColorHex = c.GetHex() || origColorHex;
+												}
+											} catch(e) {}
+											try {
+												if (typeof pTp.GetHighlight === "function") {
+													var hl = pTp.GetHighlight();
+													if (hl) {
+														if (typeof hl === "string") origHighlight = hl;
+														else if (typeof hl.GetHex === "function") origHighlight = hl.GetHex() || origHighlight;
+													}
+												}
+											} catch(e) {}
 										}
 									}
 									
@@ -4531,8 +4916,314 @@ User Request:
 							var oDocument = Api.GetDocument();
 							var countBefore = oDocument.GetElementsCount();
 							
+							function applyPropertiesToElement(targetObj, props, targetType) {
+								if (!targetObj) return;
+								if (targetType === "run") {
+									var oRange = targetObj;
+									var isAlreadyTextPr = (targetObj.GetClassType && targetObj.GetClassType() === "textPr");
+									
+									if (!isAlreadyTextPr && typeof targetObj.GetRange === "function") {
+										try {
+											var r = targetObj.GetRange();
+											if (r) oRange = r;
+										} catch(e) {}
+									}
+									
+									if (oRange) {
+										if (props.fontName !== undefined) {
+											try { if (oRange.SetFontName) oRange.SetFontName(props.fontName); } catch(e) {}
+											try { if (oRange.SetFontFamily) oRange.SetFontFamily(props.fontName); } catch(e) {}
+										}
+										if (props.fontSize !== undefined) {
+											try { if (oRange.SetFontSize) oRange.SetFontSize(props.fontSize); } catch(e) {}
+										}
+										if (props.bold !== undefined) {
+											try { if (oRange.SetBold) oRange.SetBold(!!props.bold); } catch(e) {}
+										}
+										if (props.italic !== undefined) {
+											try { if (oRange.SetItalic) oRange.SetItalic(!!props.italic); } catch(e) {}
+										}
+										if (props.underline !== undefined) {
+											try { if (oRange.SetUnderline) oRange.SetUnderline(!!props.underline); } catch(e) {}
+										}
+										if (props.strikeout !== undefined) {
+											try { if (oRange.SetStrikeout) oRange.SetStrikeout(!!props.strikeout); } catch(e) {}
+										}
+										if (props.doubleStrikeout !== undefined) {
+											try { if (oRange.SetDoubleStrikeout) oRange.SetDoubleStrikeout(!!props.doubleStrikeout); } catch(e) {}
+										}
+										if (props.smallCaps !== undefined) {
+											try { if (oRange.SetSmallCaps) oRange.SetSmallCaps(!!props.smallCaps); } catch(e) {}
+										}
+										if (props.caps !== undefined) {
+											try { if (oRange.SetCaps) oRange.SetCaps(!!props.caps); } catch(e) {}
+										}
+										if (props.subscript !== undefined) {
+											try { if (oRange.SetSubscript) oRange.SetSubscript(!!props.subscript); } catch(e) {}
+										}
+										if (props.superscript !== undefined) {
+											try { if (oRange.SetSuperscript) oRange.SetSuperscript(!!props.superscript); } catch(e) {}
+										}
+										if (props.characterSpacing !== undefined) {
+											try { if (oRange.SetSpacing) oRange.SetSpacing(props.characterSpacing); } catch(e) {}
+										}
+										
+										if (props.highlight !== undefined) {
+											try {
+												var hl = props.highlight.toLowerCase().trim();
+												var mappedHl = "none";
+												if (hl === "none" || hl === "null" || hl === "default") mappedHl = "none";
+												else if (hl.indexOf("yellow") !== -1 || hl === "#ffff00") mappedHl = "yellow";
+												else if (hl.indexOf("green") !== -1 || hl === "#00ff00" || hl === "#008000") mappedHl = "green";
+												else if (hl.indexOf("blue") !== -1 || hl === "#0000ff") mappedHl = "blue";
+												else if (hl.indexOf("cyan") !== -1 || hl.indexOf("aqua") !== -1 || hl === "#00ffff") mappedHl = "cyan";
+												else if (hl.indexOf("red") !== -1 || hl === "#ff0000") mappedHl = "red";
+												else if (hl.indexOf("magenta") !== -1 || hl.indexOf("pink") !== -1 || hl === "#ff00ff") mappedHl = "magenta";
+												else if (hl.indexOf("gray") !== -1 || hl.indexOf("grey") !== -1 || hl === "#808080") mappedHl = "lightGray";
+												else mappedHl = hl;
+												
+												try { if (oRange.SetHighlight) oRange.SetHighlight(mappedHl); } catch(e) {}
+												
+												if (typeof oRange.GetTextPr === "function" && typeof oRange.SetTextPr === "function") {
+													try {
+														var tp = oRange.GetTextPr();
+														if (tp && tp.SetHighlight) {
+															tp.SetHighlight(mappedHl);
+															oRange.SetTextPr(tp);
+														}
+													} catch(eTp) {}
+												}
+											} catch(eHl) {}
+										}
+										
+										if (props.color !== undefined) {
+											try {
+												var hex = String(props.color).replace('#', '').trim();
+												var red = 0, green = 0, blue = 0;
+												var isHex = /^[0-9a-fA-F]{6}$/.test(hex);
+												if (isHex) {
+													red = parseInt(hex.substring(0, 2), 16);
+													green = parseInt(hex.substring(2, 4), 16);
+													blue = parseInt(hex.substring(4, 6), 16);
+												} else {
+													var namedColors = {
+														"red": [255, 0, 0], "green": [0, 128, 0], "blue": [0, 0, 255],
+														"yellow": [255, 255, 0], "black": [0, 0, 0], "white": [255, 255, 255],
+														"gray": [128, 128, 128], "purple": [128, 0, 128], "orange": [255, 165, 0]
+													};
+													if (namedColors[hex.toLowerCase()]) {
+														var rgb = namedColors[hex.toLowerCase()];
+														red = rgb[0]; green = rgb[1]; blue = rgb[2];
+														isHex = true;
+													}
+												}
+												
+												if (isHex) {
+													try { oRange.SetColor(red, green, blue); } catch(e) {}
+													try {
+														var colorObj = Api.CreateColorFromRGB(red, green, blue);
+														oRange.SetColor(colorObj);
+													} catch(eRGB) {}
+												}
+											} catch(eColorOuter) {}
+										}
+									}
+								} else if (targetType === "paragraph") {
+									var oParagraph = targetObj;
+									try {
+										if (props.alignment) {
+											var jc = props.alignment;
+											if (jc === "justify") jc = "both";
+											if (typeof oParagraph.SetJc === "function") oParagraph.SetJc(jc);
+										}
+									} catch(e) {}
+									try {
+										var oParaPr = typeof oParagraph.GetParaPr === "function" ? oParagraph.GetParaPr() : null;
+										if (oParaPr) {
+											if (props.indLeft !== undefined && typeof oParaPr.SetIndLeft === "function") {
+												oParaPr.SetIndLeft(Number(props.indLeft));
+											}
+											if (props.indRight !== undefined && typeof oParaPr.SetIndRight === "function") {
+												oParaPr.SetIndRight(Number(props.indRight));
+											}
+											if (props.indFirstLine !== undefined && typeof oParaPr.SetIndFirstLine === "function") {
+												oParaPr.SetIndFirstLine(Number(props.indFirstLine));
+											}
+										}
+									} catch(eIndent) {}
+									try { if (props.spacingAfter !== undefined && oParagraph.SetSpacingAfter) oParagraph.SetSpacingAfter(props.spacingAfter); } catch(e) {}
+									try { if (props.spacingBefore !== undefined && oParagraph.SetSpacingBefore) oParagraph.SetSpacingBefore(props.spacingBefore); } catch(e) {}
+									try {
+										if (props.lineSpacing !== undefined && oParagraph.SetSpacingLine) {
+											var rule = props.lineSpacingRule || "auto";
+											var val = props.lineSpacingTwips || Math.round(props.lineSpacing * 240);
+											oParagraph.SetSpacingLine(val, rule);
+										}
+									} catch(e) {}
+									try {
+										if (props.shading !== undefined && oParagraph.SetShd) {
+											var hex = String(props.shading).replace('#', '').trim();
+											if (/^[0-9a-fA-F]{6}$/.test(hex)) {
+												var r = parseInt(hex.substring(0, 2), 16);
+												var g = parseInt(hex.substring(2, 4), 16);
+												var b = parseInt(hex.substring(4, 6), 16);
+												try { oParagraph.SetShd(r, g, b); } catch(eShd) {
+													try { oParagraph.SetShd(Api.CreateColorFromRGB(r, g, b)); } catch(errShd) {}
+												}
+											}
+										}
+									} catch(e) {}
+								}
+							}
+
 							var parseAndApplyTextWithTags = function(oPar, htmlStr, defFont, defSize, defBold, defItalic, defUnderline, defStrikeout, defColorHex, defHighlight, pProps) {
 								try { oPar.RemoveAllElements(); } catch(e) {}
+								
+								function applyFormatToRun(oRun, formatState) {
+									if (!oRun) return;
+									
+									// 1. Direct ApiRun styling properties
+									try {
+										if (formatState.fontName) {
+											if (typeof oRun.SetFontName === "function") oRun.SetFontName(formatState.fontName);
+										}
+										if (formatState.fontSize) {
+											if (typeof oRun.SetFontSize === "function") oRun.SetFontSize(formatState.fontSize);
+										}
+										if (typeof oRun.SetBold === "function") oRun.SetBold(!!formatState.bold);
+										if (typeof oRun.SetItalic === "function") oRun.SetItalic(!!formatState.italic);
+										if (typeof oRun.SetUnderline === "function") oRun.SetUnderline(!!formatState.underline);
+										if (typeof oRun.SetStrikeout === "function") oRun.SetStrikeout(!!formatState.strikeout);
+										if (typeof oRun.SetDoubleStrikeout === "function") oRun.SetDoubleStrikeout(!!formatState.doubleStrikeout);
+										if (typeof oRun.SetSmallCaps === "function") oRun.SetSmallCaps(!!formatState.smallCaps);
+										if (typeof oRun.SetCaps === "function") oRun.SetCaps(!!formatState.caps);
+										if (typeof oRun.SetSubscript === "function") oRun.SetSubscript(!!formatState.subscript);
+										if (typeof oRun.SetSuperscript === "function") oRun.SetSuperscript(!!formatState.superscript);
+										if (formatState.characterSpacing && typeof oRun.SetSpacing === "function") oRun.SetSpacing(formatState.characterSpacing);
+										
+										if (formatState.highlight) {
+											var hl = formatState.highlight.toLowerCase().trim();
+											var mappedHl = "none";
+											if (hl === "none" || hl === "null" || hl === "default") mappedHl = "none";
+											else if (hl.indexOf("yellow") !== -1 || hl === "#ffff00") mappedHl = "yellow";
+											else if (hl.indexOf("green") !== -1 || hl === "#00ff00" || hl === "#008000") mappedHl = "green";
+											else if (hl.indexOf("blue") !== -1 || hl === "#0000ff") mappedHl = "blue";
+											else if (hl.indexOf("cyan") !== -1 || hl.indexOf("aqua") !== -1 || hl === "#00ffff") mappedHl = "cyan";
+											else if (hl.indexOf("red") !== -1 || hl === "#ff0000") mappedHl = "red";
+											else if (hl.indexOf("magenta") !== -1 || hl === "#ff00ff") mappedHl = "magenta";
+											else if (hl.indexOf("gray") !== -1 || hl.indexOf("grey") !== -1 || hl === "#808080") mappedHl = "lightGray";
+											else mappedHl = hl;
+											if (typeof oRun.SetHighlight === "function") oRun.SetHighlight(mappedHl);
+										}
+										
+										if (formatState.color) {
+											var hex = String(formatState.color).replace('#', '').trim();
+											if (/^[0-9a-fA-F]{6}$/.test(hex)) {
+												var red = parseInt(hex.substring(0, 2), 16);
+												var green = parseInt(hex.substring(2, 4), 16);
+												var blue = parseInt(hex.substring(4, 6), 16);
+												if (typeof oRun.SetColor === "function") {
+													try { oRun.SetColor(red, green, blue); } catch(eC1) {}
+													try { oRun.SetColor(Api.CreateColorFromRGB(red, green, blue)); } catch(eC2) {}
+												}
+											} else {
+												var namedColors = {
+													"red": [255, 0, 0], "green": [0, 128, 0], "blue": [0, 0, 255],
+													"yellow": [255, 255, 0], "black": [0, 0, 0], "white": [255, 255, 255],
+													"gray": [128, 128, 128], "purple": [128, 0, 128], "orange": [255, 165, 0]
+												};
+												if (namedColors[hex.toLowerCase()]) {
+													var rgb = namedColors[hex.toLowerCase()];
+													if (typeof oRun.SetColor === "function") {
+														try { oRun.SetColor(rgb[0], rgb[1], rgb[2]); } catch(eC3) {}
+														try { oRun.SetColor(Api.CreateColorFromRGB(rgb[0], rgb[1], rgb[2])); } catch(eC4) {}
+													}
+												}
+											}
+										}
+									} catch(eRunDirect) {}
+
+									// 2. Fallback to ApiRange transient/selection properties
+									var oRunRange = oRun;
+									try {
+										var r = oRun.GetRange();
+										if (r) oRunRange = r;
+									} catch(e) {}
+									
+									if (formatState.fontName) {
+										try { if (oRunRange.SetFontFamily) oRunRange.SetFontFamily(formatState.fontName); } catch(e) {}
+										try { if (oRunRange.SetFontName) oRunRange.SetFontName(formatState.fontName); } catch(e) {}
+									}
+									if (formatState.fontSize) {
+										try { if (oRunRange.SetFontSize) oRunRange.SetFontSize(formatState.fontSize); } catch(e) {}
+									}
+									try { if (oRunRange.SetBold) oRunRange.SetBold(!!formatState.bold); } catch(e) {}
+									try { if (oRunRange.SetItalic) oRunRange.SetItalic(!!formatState.italic); } catch(e) {}
+									try { if (oRunRange.SetUnderline) oRunRange.SetUnderline(!!formatState.underline); } catch(e) {}
+									try { if (oRunRange.SetStrikeout) oRunRange.SetStrikeout(!!formatState.strikeout); } catch(e) {}
+									try { if (oRunRange.SetDoubleStrikeout) oRunRange.SetDoubleStrikeout(!!formatState.doubleStrikeout); } catch(e) {}
+									try { if (oRunRange.SetSmallCaps) oRunRange.SetSmallCaps(!!formatState.smallCaps); } catch(e) {}
+									try { if (oRunRange.SetCaps) oRunRange.SetCaps(!!formatState.caps); } catch(e) {}
+									try { if (oRunRange.SetSubscript) oRunRange.SetSubscript(!!formatState.subscript); } catch(e) {}
+									try { if (oRunRange.SetSuperscript) oRunRange.SetSuperscript(!!formatState.superscript); } catch(e) {}
+									try { if (formatState.characterSpacing && oRunRange.SetSpacing) oRunRange.SetSpacing(formatState.characterSpacing); } catch(e) {}
+									
+									if (formatState.highlight) {
+										try {
+											var hl = formatState.highlight.toLowerCase().trim();
+											var mappedHl = "none";
+											if (hl === "none" || hl === "null" || hl === "default") mappedHl = "none";
+											else if (hl.indexOf("yellow") !== -1 || hl === "#ffff00") mappedHl = "yellow";
+											else if (hl.indexOf("green") !== -1 || hl === "#00ff00" || hl === "#008000") mappedHl = "green";
+											else if (hl.indexOf("blue") !== -1 || hl === "#0000ff") mappedHl = "blue";
+											else if (hl.indexOf("cyan") !== -1 || hl.indexOf("aqua") !== -1 || hl === "#00ffff") mappedHl = "cyan";
+											else if (hl.indexOf("red") !== -1 || hl === "#ff0000") mappedHl = "red";
+											else if (hl.indexOf("magenta") !== -1 || hl === "#ff00ff") mappedHl = "magenta";
+											else if (hl.indexOf("gray") !== -1 || hl.indexOf("grey") !== -1 || hl === "#808080") mappedHl = "lightGray";
+											else mappedHl = hl;
+											
+											try { if (oRunRange.SetHighlight) oRunRange.SetHighlight(mappedHl); } catch(e) {}
+											
+											if (typeof oRunRange.GetTextPr === "function" && typeof oRunRange.SetTextPr === "function") {
+												try {
+													var tp = oRunRange.GetTextPr();
+													if (tp && tp.SetHighlight) {
+														tp.SetHighlight(mappedHl);
+														oRunRange.SetTextPr(tp);
+													}
+												} catch(eTp) {}
+											}
+										} catch(eHighlight) {}
+									}
+									
+									if (formatState.color) {
+										try {
+											var hex = String(formatState.color).replace('#', '').trim();
+											if (/^[0-9a-fA-F]{6}$/.test(hex)) {
+												var red = parseInt(hex.substring(0, 2), 16);
+												var green = parseInt(hex.substring(2, 4), 16);
+												var blue = parseInt(hex.substring(4, 6), 16);
+												try { oRunRange.SetColor(red, green, blue); } catch(eColor) {}
+												try {
+													var colorObj = Api.CreateColorFromRGB(red, green, blue);
+													oRunRange.SetColor(colorObj);
+												} catch(eColorRGB) {}
+											} else {
+												var namedColors = {
+													"red": [255, 0, 0], "green": [0, 128, 0], "blue": [0, 0, 255],
+													"yellow": [255, 255, 0], "black": [0, 0, 0], "white": [255, 255, 255],
+													"gray": [128, 128, 128], "purple": [128, 0, 128], "orange": [255, 165, 0]
+												};
+												if (namedColors[hex.toLowerCase()]) {
+													var rgb = namedColors[hex.toLowerCase()];
+													try { oRunRange.SetColor(rgb[0], rgb[1], rgb[2]); } catch(eC) {}
+													try { oRunRange.SetColor(Api.CreateColorFromRGB(rgb[0], rgb[1], rgb[2])); } catch(eC) {}
+												}
+											}
+										} catch(eColorOuter) {}
+									}
+								}
+
 								if (htmlStr) {
 									htmlStr = htmlStr
 										.replace(/\*\*(.*?)\*\*/g, '<b>$1</b>')
@@ -4563,50 +5254,7 @@ User Request:
 									var oRun = null;
 									try { oRun = oPar.AddText(""); } catch(eText) {}
 									if (oRun) {
-										if (formatState.fontName) {
-											try { oRun.SetFontFamily(formatState.fontName); } catch(e) {}
-											try { oRun.SetFontName(formatState.fontName); } catch(e) {}
-										}
-										if (formatState.fontSize) {
-											try { oRun.SetFontSize(formatState.fontSize); } catch(e) {}
-										}
-										try { oRun.SetBold(!!formatState.bold); } catch(e) {}
-										try { oRun.SetItalic(!!formatState.italic); } catch(e) {}
-										try { oRun.SetUnderline(!!formatState.underline); } catch(e) {}
-										try { oRun.SetStrikeout(!!formatState.strikeout); } catch(e) {}
-										try { oRun.SetDoubleStrikeout(!!formatState.doubleStrikeout); } catch(e) {}
-										try { oRun.SetSmallCaps(!!formatState.smallCaps); } catch(e) {}
-										try { oRun.SetCaps(!!formatState.caps); } catch(e) {}
-										try { oRun.SetSubscript(!!formatState.subscript); } catch(e) {}
-										try { oRun.SetSuperscript(!!formatState.superscript); } catch(e) {}
-										try { if (formatState.characterSpacing) oRun.SetSpacing(formatState.characterSpacing); } catch(e) {}
-										if (formatState.highlight) {
-											try {
-												var hl = formatState.highlight.toLowerCase().trim();
-												if (hl === "none" || hl === "null" || hl === "default") oRun.SetHighlight("none");
-												else if (hl.indexOf("yellow") !== -1 || hl === "#ffff00") oRun.SetHighlight("yellow");
-												else if (hl.indexOf("green") !== -1 || hl === "#00ff00" || hl === "#008000") oRun.SetHighlight("green");
-												else if (hl.indexOf("blue") !== -1 || hl === "#0000ff") oRun.SetHighlight("blue");
-												else if (hl.indexOf("cyan") !== -1 || hl.indexOf("aqua") !== -1 || hl === "#00ffff") oRun.SetHighlight("cyan");
-												else if (hl.indexOf("red") !== -1 || hl === "#ff0000") oRun.SetHighlight("red");
-												else if (hl.indexOf("magenta") !== -1 || hl === "#ff00ff") oRun.SetHighlight("magenta");
-												else if (hl.indexOf("gray") !== -1 || hl.indexOf("grey") !== -1 || hl === "#808080") oRun.SetHighlight("lightGray");
-												else oRun.SetHighlight(hl);
-											} catch(eHighlight) {}
-										}
-										if (formatState.color) {
-											try {
-												var hex = String(formatState.color).replace('#', '').trim();
-												if (/^[0-9a-fA-F]{6}$/.test(hex)) {
-													var red = parseInt(hex.substring(0, 2), 16);
-													var green = parseInt(hex.substring(2, 4), 16);
-													var blue = parseInt(hex.substring(4, 6), 16);
-													try { oRun.SetColor(Api.CreateColorFromRGB(red, green, blue)); } catch(eColor) {
-														try { oRun.SetColor(red, green, blue); } catch(errHex) {}
-													}
-												}
-											} catch(eColorOuter) {}
-										}
+										applyFormatToRun(oRun, formatState);
 									}
 									return;
 								}
@@ -4630,7 +5278,7 @@ User Request:
 												newState.italic = true;
 											} else if (tagLower.indexOf("<u") === 0) {
 												newState.underline = true;
-											} else if (tagLower.indexOf("<strike") === 0 || tagLower.indexOf("<del") === 0 || tagLower.indexOf("<s") === 0) {
+											} else if (tagLower.indexOf("<strike") === 0 || tagLower.indexOf("<del") === 0 || /^<s[> \/]/i.test(tagLower)) {
 												newState.strikeout = true;
 											} else if (tagLower.indexOf("<sub>") === 0) {
 												newState.subscript = true;
@@ -4752,60 +5400,7 @@ User Request:
 										var oRun = null;
 										try { oRun = oPar.AddText(decText); } catch(eText) {}
 										if (oRun) {
-											if (formatState.fontName) {
-												try { oRun.SetFontFamily(formatState.fontName); } catch(e) {}
-												try { oRun.SetFontName(formatState.fontName); } catch(e) {}
-											}
-											if (formatState.fontSize) {
-												try { oRun.SetFontSize(formatState.fontSize); } catch(e) {}
-											}
-											try { oRun.SetBold(!!formatState.bold); } catch(e) {}
-											try { oRun.SetItalic(!!formatState.italic); } catch(e) {}
-											try { oRun.SetUnderline(!!formatState.underline); } catch(e) {}
-											try { oRun.SetStrikeout(!!formatState.strikeout); } catch(e) {}
-											try { oRun.SetDoubleStrikeout(!!formatState.doubleStrikeout); } catch(e) {}
-											try { oRun.SetSmallCaps(!!formatState.smallCaps); } catch(e) {}
-											try { oRun.SetCaps(!!formatState.caps); } catch(e) {}
-											try { oRun.SetSubscript(!!formatState.subscript); } catch(e) {}
-											try { oRun.SetSuperscript(!!formatState.superscript); } catch(e) {}
-											try { if (formatState.characterSpacing) oRun.SetSpacing(formatState.characterSpacing); } catch(e) {}
-											if (formatState.highlight) {
-												try {
-													var hl = formatState.highlight.toLowerCase().trim();
-													if (hl === "none" || hl === "null" || hl === "default") oRun.SetHighlight("none");
-													else if (hl.indexOf("yellow") !== -1 || hl === "#ffff00") oRun.SetHighlight("yellow");
-													else if (hl.indexOf("green") !== -1 || hl === "#00ff00" || hl === "#008000") oRun.SetHighlight("green");
-													else if (hl.indexOf("blue") !== -1 || hl === "#0000ff") oRun.SetHighlight("blue");
-													else if (hl.indexOf("cyan") !== -1 || hl.indexOf("aqua") !== -1 || hl === "#00ffff") oRun.SetHighlight("cyan");
-													else if (hl.indexOf("red") !== -1 || hl === "#ff0000") oRun.SetHighlight("red");
-													else if (hl.indexOf("magenta") !== -1 || hl === "#ff00ff") oRun.SetHighlight("magenta");
-													else if (hl.indexOf("gray") !== -1 || hl.indexOf("grey") !== -1 || hl === "#808080") oRun.SetHighlight("lightGray");
-													else oRun.SetHighlight(hl);
-												} catch(eHighlight) {}
-											}
-											if (formatState.color) {
-												try {
-													var hex = String(formatState.color).replace('#', '').trim();
-													if (/^[0-9a-fA-F]{6}$/.test(hex)) {
-														var red = parseInt(hex.substring(0, 2), 16);
-														var green = parseInt(hex.substring(2, 4), 16);
-														var blue = parseInt(hex.substring(4, 6), 16);
-														try { oRun.SetColor(Api.CreateColorFromRGB(red, green, blue)); } catch(eColor) {
-															try { oRun.SetColor(red, green, blue); } catch(errHex) {}
-														}
-													} else {
-														var namedColors = {
-															"red": [255, 0, 0], "green": [0, 128, 0], "blue": [0, 0, 255],
-															"yellow": [255, 255, 0], "black": [0, 0, 0], "white": [255, 255, 255],
-															"gray": [128, 128, 128], "purple": [128, 0, 128], "orange": [255, 165, 0]
-														};
-														if (namedColors[hex.toLowerCase()]) {
-															var rgb = namedColors[hex.toLowerCase()];
-															oRun.SetColor(Api.CreateColorFromRGB(rgb[0], rgb[1], rgb[2]));
-														}
-													}
-												} catch(eColorOuter) {}
-											}
+											applyFormatToRun(oRun, formatState);
 										}
 									}
 								}
@@ -4840,7 +5435,9 @@ User Request:
 											try { if (typeof firstRun.GetTextPr === "function") textPr = firstRun.GetTextPr(); } catch(e) {}
 											if (textPr) {
 												try { 
-													if (typeof textPr.GetFontName === "function") {
+													if (typeof textPr.GetFontFamily === "function") {
+														origFont = textPr.GetFontFamily() || origFont;
+													} else if (typeof textPr.GetFontName === "function") {
 														origFont = textPr.GetFontName() || origFont;
 													}
 												} catch(e) {}
@@ -4867,7 +5464,40 @@ User Request:
 											}
 										}
 									}
+									if ((origFont === "Calibri" || !origFont) && typeof oParagraph.GetTextPr === "function") {
+										var pTp = oParagraph.GetTextPr();
+										if (pTp) {
+											try {
+												if (typeof pTp.GetFontFamily === "function") {
+													origFont = pTp.GetFontFamily() || origFont;
+												} else if (typeof pTp.GetFontName === "function") {
+													origFont = pTp.GetFontName() || origFont;
+												}
+											} catch(e) {}
+											try { if (typeof pTp.GetFontSize === "function") origSize = pTp.GetFontSize() || origSize; } catch(e) {}
+											try { if (typeof pTp.GetBold === "function") origBold = pTp.GetBold() || origBold; } catch(e) {}
+											try { if (typeof pTp.GetItalic === "function") origItalic = pTp.GetItalic() || origItalic; } catch(e) {}
+											try { if (typeof pTp.GetUnderline === "function") origUnderline = !!pTp.GetUnderline(); } catch(e) {}
+											try { if (typeof pTp.GetStrikeout === "function") origStrikeout = !!pTp.GetStrikeout(); } catch(e) {}
+											try {
+												if (typeof pTp.GetColor === "function") {
+													var c = pTp.GetColor();
+													if (c && typeof c.GetHex === "function") origColorHex = c.GetHex() || origColorHex;
+												}
+											} catch(e) {}
+											try {
+												if (typeof pTp.GetHighlight === "function") {
+													var hl = pTp.GetHighlight();
+													if (hl) {
+														if (typeof hl === "string") origHighlight = hl;
+														else if (typeof hl.GetHex === "function") origHighlight = hl.GetHex() || origHighlight;
+													}
+												}
+											} catch(e) {}
+										}
+									}
 								} catch(e) {}
+							}
 								
 								try { oParagraph.Select(); } catch(e) {}
 								
@@ -4882,253 +5512,38 @@ User Request:
 										var isSelectionMode = (change.mode === 'selection' || (cachedDocData && cachedDocData.mode === 'selection'));
 										
 										if (isSelectionMode && oRange && (oRange.GetText() || "").trim().length > 0) {
-											var targetObj = oRange;
-											if (oProps.fontName !== undefined) {
-												try { targetObj.SetFontFamily(oProps.fontName); } catch(e) {}
-												try { targetObj.SetFontName(oProps.fontName); } catch(e) {}
-											}
-											if (oProps.fontSize !== undefined) {
-												try { targetObj.SetFontSize(oProps.fontSize); } catch(e) {}
-											}
-											if (oProps.bold !== undefined) {
-												try { targetObj.SetBold(!!oProps.bold); } catch(e) {}
-											}
-											if (oProps.italic !== undefined) {
-												try { targetObj.SetItalic(!!oProps.italic); } catch(e) {}
-											}
-											if (oProps.underline !== undefined) {
-												try { targetObj.SetUnderline(!!oProps.underline); } catch(e) {}
-											}
-											if (oProps.strikeout !== undefined) {
-												try { targetObj.SetStrikeout(!!oProps.strikeout); } catch(e) {}
-											}
-											if (oProps.doubleStrikeout !== undefined) {
-												try { targetObj.SetDoubleStrikeout(!!oProps.doubleStrikeout); } catch(e) {}
-											}
-											if (oProps.smallCaps !== undefined) {
-												try { targetObj.SetSmallCaps(!!oProps.smallCaps); } catch(e) {}
-											}
-											if (oProps.caps !== undefined) {
-												try { targetObj.SetCaps(!!oProps.caps); } catch(e) {}
-											}
-											if (oProps.subscript !== undefined) {
-												try { targetObj.SetSubscript(!!oProps.subscript); } catch(e) {}
-											}
-											if (oProps.superscript !== undefined) {
-												try { targetObj.SetSuperscript(!!oProps.superscript); } catch(e) {}
-											}
-											if (oProps.characterSpacing !== undefined) {
-												try { targetObj.SetSpacing(oProps.characterSpacing); } catch(e) {}
-											}
-											if (oProps.highlight !== undefined) {
-												try {
-													var hl = oProps.highlight.toLowerCase().trim();
-													if (hl === "none" || hl === "null" || hl === "default") targetObj.SetHighlight("none");
-													else if (hl.indexOf("yellow") !== -1 || hl === "#ffff00") targetObj.SetHighlight("yellow");
-													else if (hl.indexOf("green") !== -1 || hl === "#00ff00" || hl === "#008000") targetObj.SetHighlight("green");
-													else if (hl.indexOf("blue") !== -1 || hl === "#0000ff") targetObj.SetHighlight("blue");
-													else if (hl.indexOf("cyan") !== -1 || hl.indexOf("aqua") !== -1 || hl === "#00ffff") targetObj.SetHighlight("cyan");
-													else if (hl.indexOf("red") !== -1 || hl === "#ff0000") targetObj.SetHighlight("red");
-													else if (hl.indexOf("magenta") !== -1 || hl.indexOf("pink") !== -1 || hl === "#ff00ff") targetObj.SetHighlight("magenta");
-													else if (hl.indexOf("gray") !== -1 || hl.indexOf("grey") !== -1 || hl === "#808080") targetObj.SetHighlight("lightGray");
-													else targetObj.SetHighlight(hl);
-												} catch(eHighlight) {}
-											}
-											if (oProps.color !== undefined) {
-												try {
-													var hex = String(oProps.color).replace('#', '').trim();
-													if (/^[0-9a-fA-F]{6}$/.test(hex)) {
-														var red = parseInt(hex.substring(0, 2), 16);
-														var green = parseInt(hex.substring(2, 4), 16);
-														var blue = parseInt(hex.substring(4, 6), 16);
-														try { targetObj.SetColor(Api.CreateColorFromRGB(red, green, blue)); } catch(eColor) {
-															try { targetObj.SetColor(red, green, blue); } catch(errHex) {}
-														}
-													} else {
-														var namedColors = {
-															"red": [255, 0, 0], "green": [0, 128, 0], "blue": [0, 0, 255],
-															"yellow": [255, 255, 0], "black": [0, 0, 0], "white": [255, 255, 255],
-															"gray": [128, 128, 128], "purple": [128, 0, 128], "orange": [255, 165, 0]
-														};
-														if (namedColors[hex.toLowerCase()]) {
-															var rgb = namedColors[hex.toLowerCase()];
-															targetObj.SetColor(Api.CreateColorFromRGB(rgb[0], rgb[1], rgb[2]));
-														}
-													}
-												} catch(eColorOuter) {}
-											}
-											// Paragraph-level text formatting (first attempt)
-											var oTextPr = null;
-											try { oTextPr = oParagraph.GetTextPr(); } catch(e) {}
-											if (!oTextPr) {
-												try { oTextPr = Api.CreateTextPr(); } catch(e) {}
-											}
-											
-											if (oTextPr) {
-												if (oProps.fontName !== undefined) {
-													try { oTextPr.SetFontFamily(oProps.fontName); } catch(e) {}
-													try { oTextPr.SetFontName(oProps.fontName); } catch(e) {}
+											applyPropertiesToElement(oRange, oProps, "run");
+										} else {
+											// Apply formatting directly to the paragraph object
+											try {
+												applyPropertiesToElement(oParagraph, oProps, "run");
+											} catch(e) {}
+
+											// Apply paragraph-level range formatting
+											try {
+												var oParagraphRange = oParagraph.GetRange();
+												if (oParagraphRange) {
+													applyPropertiesToElement(oParagraphRange, oProps, "run");
 												}
-												if (oProps.fontSize !== undefined) {
-													try { oTextPr.SetFontSize(oProps.fontSize); } catch(e) {}
+											} catch(e) {}
+
+											// Format paragraph default text properties using a new ApiTextPr
+											try {
+												var pTp = Api.CreateTextPr();
+												applyPropertiesToElement(pTp, oProps, "run");
+												if (typeof oParagraph.SetTextPr === "function") {
+													oParagraph.SetTextPr(pTp);
 												}
-												if (oProps.bold !== undefined) {
-													try { oTextPr.SetBold(!!oProps.bold); } catch(e) {}
-												}
-												if (oProps.italic !== undefined) {
-													try { oTextPr.SetItalic(!!oProps.italic); } catch(e) {}
-												}
-												if (oProps.underline !== undefined) {
-													try { oTextPr.SetUnderline(!!oProps.underline); } catch(e) {}
-												}
-												if (oProps.strikeout !== undefined) {
-													try { oTextPr.SetStrikeout(!!oProps.strikeout); } catch(e) {}
-												}
-												if (oProps.doubleStrikeout !== undefined) {
-													try { oTextPr.SetDoubleStrikeout(!!oProps.doubleStrikeout); } catch(e) {}
-												}
-												if (oProps.smallCaps !== undefined) {
-													try { oTextPr.SetSmallCaps(!!oProps.smallCaps); } catch(e) {}
-												}
-												if (oProps.caps !== undefined) {
-													try { oTextPr.SetCaps(!!oProps.caps); } catch(e) {}
-												}
-												if (oProps.subscript !== undefined) {
-													try { oTextPr.SetSubscript(!!oProps.subscript); } catch(e) {}
-												}
-												if (oProps.superscript !== undefined) {
-													try { oTextPr.SetSuperscript(!!oProps.superscript); } catch(e) {}
-												}
-												if (oProps.characterSpacing !== undefined) {
-													try { oTextPr.SetSpacing(oProps.characterSpacing); } catch(e) {}
-												}
-												if (oProps.highlight !== undefined) {
-													try {
-														var hl = oProps.highlight.toLowerCase().trim();
-														if (hl === "none" || hl === "null" || hl === "default") oTextPr.SetHighlight("none");
-														else if (hl.indexOf("yellow") !== -1 || hl === "#ffff00") oTextPr.SetHighlight("yellow");
-														else if (hl.indexOf("green") !== -1 || hl === "#00ff00" || hl === "#008000") oTextPr.SetHighlight("green");
-														else if (hl.indexOf("blue") !== -1 || hl === "#0000ff") oTextPr.SetHighlight("blue");
-														else if (hl.indexOf("cyan") !== -1 || hl.indexOf("aqua") !== -1 || hl === "#00ffff") oTextPr.SetHighlight("cyan");
-														else if (hl.indexOf("red") !== -1 || hl === "#ff0000") oTextPr.SetHighlight("red");
-														else if (hl.indexOf("magenta") !== -1 || hl.indexOf("pink") !== -1 || hl === "#ff00ff") oTextPr.SetHighlight("magenta");
-														else if (hl.indexOf("gray") !== -1 || hl.indexOf("grey") !== -1 || hl === "#808080") oTextPr.SetHighlight("lightGray");
-														else oTextPr.SetHighlight(hl);
-													} catch(eHighlight) {}
-												}
-												if (oProps.color !== undefined) {
-													try {
-														var hex = String(oProps.color).replace('#', '').trim();
-														if (/^[0-9a-fA-F]{6}$/.test(hex)) {
-															var red = parseInt(hex.substring(0, 2), 16);
-															var green = parseInt(hex.substring(2, 4), 16);
-															var blue = parseInt(hex.substring(4, 6), 16);
-															try { oTextPr.SetColor(Api.CreateColorFromRGB(red, green, blue)); } catch(eColor) {
-																try { oTextPr.SetColor(red, green, blue); } catch(errHex) {}
-															}
-														} else {
-															var namedColors = {
-																"red": [255, 0, 0], "green": [0, 128, 0], "blue": [0, 0, 255],
-																"yellow": [255, 255, 0], "black": [0, 0, 0], "white": [255, 255, 255],
-																"gray": [128, 128, 128], "purple": [128, 0, 128], "orange": [255, 165, 0]
-															};
-															if (namedColors[hex.toLowerCase()]) {
-																var rgb = namedColors[hex.toLowerCase()];
-																oTextPr.SetColor(Api.CreateColorFromRGB(rgb[0], rgb[1], rgb[2]));
-															}
-														}
-													} catch(eColorOuter) {}
-												}
-												try { oParagraph.SetTextPr(oTextPr); } catch(e) {}
-											}
+											} catch(e) {}
 
 											// Fallback to applying styles to all runs of the paragraph
 											var runCount = oParagraph.GetElementsCount();
 											for (var r = 0; r < runCount; r++) {
 												var oRun = oParagraph.GetElement(r);
-												if (oRun && (oRun.GetClassType() === "run" || typeof oRun.GetTextPr === "function")) {
-													var targetObj = null;
-													try { targetObj = oRun.GetTextPr(); } catch(e) {}
-													if (!targetObj) {
-														try { targetObj = Api.CreateTextPr(); } catch(e) {}
-													}
-													if (targetObj) {
-														if (oProps.fontName !== undefined) {
-															try { targetObj.SetFontFamily(oProps.fontName); } catch(e) {}
-															try { targetObj.SetFontName(oProps.fontName); } catch(e) {}
-														}
-														if (oProps.fontSize !== undefined) {
-															try { targetObj.SetFontSize(oProps.fontSize); } catch(e) {}
-														}
-														if (oProps.bold !== undefined) {
-															try { targetObj.SetBold(!!oProps.bold); } catch(e) {}
-														}
-														if (oProps.italic !== undefined) {
-															try { targetObj.SetItalic(!!oProps.italic); } catch(e) {}
-														}
-														if (oProps.underline !== undefined) {
-															try { targetObj.SetUnderline(!!oProps.underline); } catch(e) {}
-														}
-														if (oProps.strikeout !== undefined) {
-															try { targetObj.SetStrikeout(!!oProps.strikeout); } catch(e) {}
-														}
-														if (oProps.doubleStrikeout !== undefined) {
-															try { targetObj.SetDoubleStrikeout(!!oProps.doubleStrikeout); } catch(e) {}
-														}
-														if (oProps.smallCaps !== undefined) {
-															try { targetObj.SetSmallCaps(!!oProps.smallCaps); } catch(e) {}
-														}
-														if (oProps.caps !== undefined) {
-															try { targetObj.SetCaps(!!oProps.caps); } catch(e) {}
-														}
-														if (oProps.subscript !== undefined) {
-															try { targetObj.SetSubscript(!!oProps.subscript); } catch(e) {}
-														}
-														if (oProps.superscript !== undefined) {
-															try { targetObj.SetSuperscript(!!oProps.superscript); } catch(e) {}
-														}
-														if (oProps.characterSpacing !== undefined) {
-															try { targetObj.SetSpacing(oProps.characterSpacing); } catch(e) {}
-														}
-														if (oProps.highlight !== undefined) {
-															try {
-																var hl = oProps.highlight.toLowerCase().trim();
-																if (hl === "none" || hl === "null" || hl === "default") targetObj.SetHighlight("none");
-																else if (hl.indexOf("yellow") !== -1 || hl === "#ffff00") targetObj.SetHighlight("yellow");
-																else if (hl.indexOf("green") !== -1 || hl === "#00ff00" || hl === "#008000") targetObj.SetHighlight("green");
-																else if (hl.indexOf("blue") !== -1 || hl === "#0000ff") targetObj.SetHighlight("blue");
-																else if (hl.indexOf("cyan") !== -1 || hl.indexOf("aqua") !== -1 || hl === "#00ffff") targetObj.SetHighlight("cyan");
-																else if (hl.indexOf("red") !== -1 || hl === "#ff0000") targetObj.SetHighlight("red");
-																else if (hl.indexOf("magenta") !== -1 || hl.indexOf("pink") !== -1 || hl === "#ff00ff") targetObj.SetHighlight("magenta");
-																else if (hl.indexOf("gray") !== -1 || hl.indexOf("grey") !== -1 || hl === "#808080") targetObj.SetHighlight("lightGray");
-																else targetObj.SetHighlight(hl);
-															} catch(eHighlight) {}
-														}
-														if (oProps.color !== undefined) {
-															try {
-																var hex = String(oProps.color).replace('#', '').trim();
-																if (/^[0-9a-fA-F]{6}$/.test(hex)) {
-																	var red = parseInt(hex.substring(0, 2), 16);
-																	var green = parseInt(hex.substring(2, 4), 16);
-																	var blue = parseInt(hex.substring(4, 6), 16);
-																	try { targetObj.SetColor(Api.CreateColorFromRGB(red, green, blue)); } catch(eColor) {
-																		try { targetObj.SetColor(red, green, blue); } catch(errHex) {}
-																	}
-																} else {
-																	var namedColors = {
-																		"red": [255, 0, 0], "green": [0, 128, 0], "blue": [0, 0, 255],
-																		"yellow": [255, 255, 0], "black": [0, 0, 0], "white": [255, 255, 255],
-																		"gray": [128, 128, 128], "purple": [128, 0, 128], "orange": [255, 165, 0]
-																	};
-																	if (namedColors[hex.toLowerCase()]) {
-																		var rgb = namedColors[hex.toLowerCase()];
-																		targetObj.SetColor(Api.CreateColorFromRGB(rgb[0], rgb[1], rgb[2]));
-																	}
-																}
-															} catch(eColorOuter) {}
-														}
-														try { oRun.SetTextPr(targetObj); } catch(e) {}
-													}
+												if (oRun && oRun.GetClassType() === "run") {
+													try {
+														applyPropertiesToElement(oRun, oProps, "run");
+													} catch(e) {}
 												}
 											}
 										}
@@ -5137,53 +5552,55 @@ User Request:
 
 								// Apply paragraph-level styling
 								try {
-									if (oProps.alignment) {
-										var jc = oProps.alignment;
-										if (jc === "justify") jc = "both";
-										if (typeof oParagraph.SetJc === "function") oParagraph.SetJc(jc);
-									}
+									applyPropertiesToElement(oParagraph, oProps, "paragraph");
 								} catch(e) {}
+
+								// Apply document/section layout properties
 								try {
-									var oParaPr = typeof oParagraph.GetParaPr === "function" ? oParagraph.GetParaPr() : null;
-									if (oParaPr) {
-										if (oProps.indLeft !== undefined && typeof oParaPr.SetIndLeft === "function") {
-											oParaPr.SetIndLeft(Number(oProps.indLeft));
-										}
-										if (oProps.indRight !== undefined && typeof oParaPr.SetIndRight === "function") {
-											oParaPr.SetIndRight(Number(oProps.indRight));
-										}
-										if (oProps.indFirstLine !== undefined && typeof oParaPr.SetIndFirstLine === "function") {
-											oParaPr.SetIndFirstLine(Number(oProps.indFirstLine));
-										}
+									var section = null;
+									if (typeof oDocument.GetDefaultSection === "function") {
+										section = oDocument.GetDefaultSection();
+									} else {
+										var secs = typeof oDocument.GetSections === "function" ? oDocument.GetSections() : null;
+										if (secs && secs.length > 0) section = secs[0];
 									}
-								} catch(eIndent) {}
-								try { if (oProps.spacingAfter !== undefined && oParagraph.SetSpacingAfter) oParagraph.SetSpacingAfter(oProps.spacingAfter); } catch(e) {}
-								try { if (oProps.spacingBefore !== undefined && oParagraph.SetSpacingBefore) oParagraph.SetSpacingBefore(oProps.spacingBefore); } catch(e) {}
-								try {
-									if (oProps.lineSpacing !== undefined && oParagraph.SetSpacingLine) {
-										var rule = oProps.lineSpacingRule || "auto";
-										var val = oProps.lineSpacingTwips || Math.round(oProps.lineSpacing * 240);
-										oParagraph.SetSpacingLine(val, rule);
-									}
-								} catch(e) {}
-								try {
-									if (oProps.shading !== undefined && oParagraph.SetShd) {
-										var hex = String(oProps.shading).replace('#', '').trim();
-										if (/^[0-9a-fA-F]{6}$/.test(hex)) {
-											var r = parseInt(hex.substring(0, 2), 16);
-											var g = parseInt(hex.substring(2, 4), 16);
-											var b = parseInt(hex.substring(4, 6), 16);
-											try { oParagraph.SetShd(r, g, b); } catch(eShd) {
-												try { oParagraph.SetShd(Api.CreateColorFromRGB(r, g, b)); } catch(errShd) {}
+									if (section) {
+										if (oProps.pageOrientation !== undefined) {
+											if (oProps.pageOrientation === "landscape") {
+												try { section.SetPageOrientation("landscape"); } catch(e) {}
+											} else {
+												try { section.SetPageOrientation("portrait"); } catch(e) {}
 											}
 										}
+										if (oProps.pageWidth !== undefined && oProps.pageHeight !== undefined) {
+											try { section.SetPageSize(Number(oProps.pageWidth), Number(oProps.pageHeight)); } catch(e) {}
+										}
+										var mLeft = oProps.marginLeft !== undefined ? Number(oProps.marginLeft) : null;
+										var mRight = oProps.marginRight !== undefined ? Number(oProps.marginRight) : null;
+										var mTop = oProps.marginTop !== undefined ? Number(oProps.marginTop) : null;
+										var mBottom = oProps.marginBottom !== undefined ? Number(oProps.marginBottom) : null;
+										if (mLeft !== null || mRight !== null || mTop !== null || mBottom !== null) {
+											try {
+												if (mLeft !== null && section.SetMarginLeft) section.SetMarginLeft(mLeft);
+												if (mRight !== null && section.SetMarginRight) section.SetMarginRight(mRight);
+												if (mTop !== null && section.SetMarginTop) section.SetMarginTop(mTop);
+												if (mBottom !== null && section.SetMarginBottom) section.SetMarginBottom(mBottom);
+											} catch(eMarg) {}
+										}
+										if (oProps.columnsCount !== undefined) {
+											try {
+												if (typeof section.SetEqualColumns === "function") {
+													var spacing = oProps.columnsSpacing !== undefined ? Number(oProps.columnsSpacing) : 720;
+													section.SetEqualColumns(Number(oProps.columnsCount), spacing);
+												}
+											} catch(eCol) {}
+										}
 									}
-								} catch(e) {}
-							}
-							return "success";
-						}, false, true, function() {
-							resolve({ delta: 0 });
-						});
+								} catch(eLayout) {}
+								return "success";
+							}, false, true, function() {
+								resolve({ delta: 0 });
+							});
 					}
 				});
 			}
@@ -5256,7 +5673,7 @@ User Request:
 					setTimeout(applyNext, 300);
 				}
 			}
-			} catch (err) {
+		} catch (err) {
 				log(`Error executing autonomous edits at step ${i}: ${err.message}`, 'error');
 				setStepperStep(3, "failed", err.message);
 				isEditingAutonomously = false;
@@ -5269,6 +5686,152 @@ User Request:
 		// HTML Tag Parser
 		function parseAndApplyTextWithTags(oPar, htmlStr, defFont, defSize, defBold, defItalic, defUnderline, defStrikeout, defColorHex, defHighlight, pProps) {
 			try { oPar.RemoveAllElements(); } catch(e) {}
+			
+			function applyFormatToRun(oRun, formatState) {
+				if (!oRun) return;
+				
+				// 1. Direct ApiRun styling properties
+				try {
+					if (formatState.fontName) {
+						if (typeof oRun.SetFontName === "function") oRun.SetFontName(formatState.fontName);
+					}
+					if (formatState.fontSize) {
+						if (typeof oRun.SetFontSize === "function") oRun.SetFontSize(formatState.fontSize);
+					}
+					if (typeof oRun.SetBold === "function") oRun.SetBold(!!formatState.bold);
+					if (typeof oRun.SetItalic === "function") oRun.SetItalic(!!formatState.italic);
+					if (typeof oRun.SetUnderline === "function") oRun.SetUnderline(!!formatState.underline);
+					if (typeof oRun.SetStrikeout === "function") oRun.SetStrikeout(!!formatState.strikeout);
+					if (typeof oRun.SetDoubleStrikeout === "function") oRun.SetDoubleStrikeout(!!formatState.doubleStrikeout);
+					if (typeof oRun.SetSmallCaps === "function") oRun.SetSmallCaps(!!formatState.smallCaps);
+					if (typeof oRun.SetCaps === "function") oRun.SetCaps(!!formatState.caps);
+					if (typeof oRun.SetSubscript === "function") oRun.SetSubscript(!!formatState.subscript);
+					if (typeof oRun.SetSuperscript === "function") oRun.SetSuperscript(!!formatState.superscript);
+					if (formatState.characterSpacing && typeof oRun.SetSpacing === "function") oRun.SetSpacing(formatState.characterSpacing);
+					
+					if (formatState.highlight) {
+						var hl = formatState.highlight.toLowerCase().trim();
+						var mappedHl = "none";
+						if (hl === "none" || hl === "null" || hl === "default") mappedHl = "none";
+						else if (hl.indexOf("yellow") !== -1 || hl === "#ffff00") mappedHl = "yellow";
+						else if (hl.indexOf("green") !== -1 || hl === "#00ff00" || hl === "#008000") mappedHl = "green";
+						else if (hl.indexOf("blue") !== -1 || hl === "#0000ff") mappedHl = "blue";
+						else if (hl.indexOf("cyan") !== -1 || hl.indexOf("aqua") !== -1 || hl === "#00ffff") mappedHl = "cyan";
+						else if (hl.indexOf("red") !== -1 || hl === "#ff0000") mappedHl = "red";
+						else if (hl.indexOf("magenta") !== -1 || hl === "#ff00ff") mappedHl = "magenta";
+						else if (hl.indexOf("gray") !== -1 || hl.indexOf("grey") !== -1 || hl === "#808080") mappedHl = "lightGray";
+						else mappedHl = hl;
+						if (typeof oRun.SetHighlight === "function") oRun.SetHighlight(mappedHl);
+					}
+					
+					if (formatState.color) {
+						var hex = String(formatState.color).replace('#', '').trim();
+						if (/^[0-9a-fA-F]{6}$/.test(hex)) {
+							var red = parseInt(hex.substring(0, 2), 16);
+							var green = parseInt(hex.substring(2, 4), 16);
+							var blue = parseInt(hex.substring(4, 6), 16);
+							if (typeof oRun.SetColor === "function") {
+								try { oRun.SetColor(red, green, blue); } catch(eC1) {}
+								try { oRun.SetColor(Api.CreateColorFromRGB(red, green, blue)); } catch(eC2) {}
+							}
+						} else {
+							var namedColors = {
+								"red": [255, 0, 0], "green": [0, 128, 0], "blue": [0, 0, 255],
+								"yellow": [255, 255, 0], "black": [0, 0, 0], "white": [255, 255, 255],
+								"gray": [128, 128, 128], "purple": [128, 0, 128], "orange": [255, 165, 0]
+							};
+							if (namedColors[hex.toLowerCase()]) {
+								var rgb = namedColors[hex.toLowerCase()];
+								if (typeof oRun.SetColor === "function") {
+									try { oRun.SetColor(rgb[0], rgb[1], rgb[2]); } catch(eC3) {}
+									try { oRun.SetColor(Api.CreateColorFromRGB(rgb[0], rgb[1], rgb[2])); } catch(eC4) {}
+								}
+							}
+						}
+					}
+				} catch(eRunDirect) {}
+
+				// 2. Fallback to ApiRange transient/selection properties
+				var oRunRange = oRun;
+				try {
+					var r = oRun.GetRange();
+					if (r) oRunRange = r;
+				} catch(e) {}
+				
+				if (formatState.fontName) {
+					try { if (oRunRange.SetFontFamily) oRunRange.SetFontFamily(formatState.fontName); } catch(e) {}
+					try { if (oRunRange.SetFontName) oRunRange.SetFontName(formatState.fontName); } catch(e) {}
+				}
+				if (formatState.fontSize) {
+					try { if (oRunRange.SetFontSize) oRunRange.SetFontSize(formatState.fontSize); } catch(e) {}
+				}
+				try { if (oRunRange.SetBold) oRunRange.SetBold(!!formatState.bold); } catch(e) {}
+				try { if (oRunRange.SetItalic) oRunRange.SetItalic(!!formatState.italic); } catch(e) {}
+				try { if (oRunRange.SetUnderline) oRunRange.SetUnderline(!!formatState.underline); } catch(e) {}
+				try { if (oRunRange.SetStrikeout) oRunRange.SetStrikeout(!!formatState.strikeout); } catch(e) {}
+				try { if (oRunRange.SetDoubleStrikeout) oRunRange.SetDoubleStrikeout(!!formatState.doubleStrikeout); } catch(e) {}
+				try { if (oRunRange.SetSmallCaps) oRunRange.SetSmallCaps(!!formatState.smallCaps); } catch(e) {}
+				try { if (oRunRange.SetCaps) oRunRange.SetCaps(!!formatState.caps); } catch(e) {}
+				try { if (oRunRange.SetSubscript) oRunRange.SetSubscript(!!formatState.subscript); } catch(e) {}
+				try { if (oRunRange.SetSuperscript) oRunRange.SetSuperscript(!!formatState.superscript); } catch(e) {}
+				try { if (formatState.characterSpacing && oRunRange.SetSpacing) oRunRange.SetSpacing(formatState.characterSpacing); } catch(e) {}
+				
+				if (formatState.highlight) {
+					try {
+						var hl = formatState.highlight.toLowerCase().trim();
+						var mappedHl = "none";
+						if (hl === "none" || hl === "null" || hl === "default") mappedHl = "none";
+						else if (hl.indexOf("yellow") !== -1 || hl === "#ffff00") mappedHl = "yellow";
+						else if (hl.indexOf("green") !== -1 || hl === "#00ff00" || hl === "#008000") mappedHl = "green";
+						else if (hl.indexOf("blue") !== -1 || hl === "#0000ff") mappedHl = "blue";
+						else if (hl.indexOf("cyan") !== -1 || hl.indexOf("aqua") !== -1 || hl === "#00ffff") mappedHl = "cyan";
+						else if (hl.indexOf("red") !== -1 || hl === "#ff0000") mappedHl = "red";
+						else if (hl.indexOf("magenta") !== -1 || hl === "#ff00ff") mappedHl = "magenta";
+						else if (hl.indexOf("gray") !== -1 || hl === "#grey" || hl === "#808080") mappedHl = "lightGray";
+						else mappedHl = hl;
+						
+						try { if (oRunRange.SetHighlight) oRunRange.SetHighlight(mappedHl); } catch(e) {}
+						
+						if (typeof oRunRange.GetTextPr === "function" && typeof oRunRange.SetTextPr === "function") {
+							try {
+								var tp = oRunRange.GetTextPr();
+								if (tp && tp.SetHighlight) {
+									tp.SetHighlight(mappedHl);
+									oRunRange.SetTextPr(tp);
+								}
+							} catch(eTp) {}
+						}
+					} catch(eHighlight) {}
+				}
+				
+				if (formatState.color) {
+					try {
+						var hex = String(formatState.color).replace('#', '').trim();
+						if (/^[0-9a-fA-F]{6}$/.test(hex)) {
+							var red = parseInt(hex.substring(0, 2), 16);
+							var green = parseInt(hex.substring(2, 4), 16);
+							var blue = parseInt(hex.substring(4, 6), 16);
+							try { oRunRange.SetColor(red, green, blue); } catch(eColor) {}
+							try {
+								var colorObj = Api.CreateColorFromRGB(red, green, blue);
+								oRunRange.SetColor(colorObj);
+							} catch(eColorRGB) {}
+						} else {
+							var namedColors = {
+								"red": [255, 0, 0], "green": [0, 128, 0], "blue": [0, 0, 255],
+								"yellow": [255, 255, 0], "black": [0, 0, 0], "white": [255, 255, 255],
+								"gray": [128, 128, 128], "purple": [128, 0, 128], "orange": [255, 165, 0]
+							};
+							if (namedColors[hex.toLowerCase()]) {
+								var rgb = namedColors[hex.toLowerCase()];
+								try { oRunRange.SetColor(rgb[0], rgb[1], rgb[2]); } catch(eC) {}
+								try { oRunRange.SetColor(Api.CreateColorFromRGB(rgb[0], rgb[1], rgb[2])); } catch(eC) {}
+							}
+						}
+					} catch(eColorOuter) {}
+				}
+			}
+
 			if (htmlStr) {
 				htmlStr = htmlStr
 					.replace(/\*\*(.*?)\*\*/g, '<b>$1</b>')
@@ -5296,56 +5859,10 @@ User Request:
 			};
 
 			if (!htmlStr) {
-				// For empty strings, generate a single empty run to capture formatting properties
 				var oRun = null;
 				try { oRun = oPar.AddText(""); } catch(eText) {}
 				if (oRun) {
-					if (formatState.fontName) {
-						try { oRun.SetFontFamily(formatState.fontName); } catch(e) {}
-						try { oRun.SetFontName(formatState.fontName); } catch(e) {}
-					}
-					if (formatState.fontSize) {
-						try { oRun.SetFontSize(formatState.fontSize); } catch(e) {}
-					}
-					try { oRun.SetBold(!!formatState.bold); } catch(e) {}
-					try { oRun.SetItalic(!!formatState.italic); } catch(e) {}
-					try { oRun.SetUnderline(!!formatState.underline); } catch(e) {}
-					try { oRun.SetStrikeout(!!formatState.strikeout); } catch(e) {}
-					try { oRun.SetDoubleStrikeout(!!formatState.doubleStrikeout); } catch(e) {}
-					try { oRun.SetSmallCaps(!!formatState.smallCaps); } catch(e) {}
-					try { oRun.SetCaps(!!formatState.caps); } catch(e) {}
-					try { oRun.SetSubscript(!!formatState.subscript); } catch(e) {}
-					try { oRun.SetSuperscript(!!formatState.superscript); } catch(e) {}
-					try { if (formatState.characterSpacing) oRun.SetSpacing(formatState.characterSpacing); } catch(e) {}
-					
-					if (formatState.highlight) {
-						try {
-							var hl = formatState.highlight.toLowerCase().trim();
-							if (hl === "none" || hl === "null" || hl === "default") oRun.SetHighlight("none");
-							else if (hl.indexOf("yellow") !== -1 || hl === "#ffff00") oRun.SetHighlight("yellow");
-							else if (hl.indexOf("green") !== -1 || hl === "#00ff00" || hl === "#008000") oRun.SetHighlight("green");
-							else if (hl.indexOf("blue") !== -1 || hl === "#0000ff") oRun.SetHighlight("blue");
-							else if (hl.indexOf("cyan") !== -1 || hl.indexOf("aqua") !== -1 || hl === "#00ffff") oRun.SetHighlight("cyan");
-							else if (hl.indexOf("red") !== -1 || hl === "#ff0000") oRun.SetHighlight("red");
-							else if (hl.indexOf("magenta") !== -1 || hl.indexOf("pink") !== -1 || hl === "#ff00ff") oRun.SetHighlight("magenta");
-							else if (hl.indexOf("gray") !== -1 || hl.indexOf("grey") !== -1 || hl === "#808080") oRun.SetHighlight("lightGray");
-							else oRun.SetHighlight(hl);
-						} catch(eHighlight) {}
-					}
-					
-					if (formatState.color) {
-						try {
-							var hex = String(formatState.color).replace('#', '').trim();
-							if (/^[0-9a-fA-F]{6}$/.test(hex)) {
-								var red = parseInt(hex.substring(0, 2), 16);
-								var green = parseInt(hex.substring(2, 4), 16);
-								var blue = parseInt(hex.substring(4, 6), 16);
-								try { oRun.SetColor(Api.CreateColorFromRGB(red, green, blue)); } catch(eColor) {
-									try { oRun.SetColor(red, green, blue); } catch(errHex) {}
-								}
-							}
-						} catch(eColorOuter) {}
-					}
+					applyFormatToRun(oRun, formatState);
 				}
 				return;
 			}
@@ -5371,7 +5888,7 @@ User Request:
 							newState.italic = true;
 						} else if (tagLower.indexOf("<u") === 0) {
 							newState.underline = true;
-						} else if (tagLower.indexOf("<strike") === 0 || tagLower.indexOf("<del") === 0 || tagLower.indexOf("<s") === 0) {
+						} else if (tagLower.indexOf("<strike") === 0 || tagLower.indexOf("<del") === 0 || /^<s[> \/]/i.test(tagLower)) {
 							newState.strikeout = true;
 						} else if (tagLower.indexOf("<sub>") === 0) {
 							newState.subscript = true;
@@ -5495,62 +6012,7 @@ User Request:
 					var oRun = null;
 					try { oRun = oPar.AddText(decText); } catch(eText) {}
 					if (oRun) {
-						if (formatState.fontName) {
-							try { oRun.SetFontFamily(formatState.fontName); } catch(e) {}
-							try { oRun.SetFontName(formatState.fontName); } catch(e) {}
-						}
-						if (formatState.fontSize) {
-							try { oRun.SetFontSize(formatState.fontSize); } catch(e) {}
-						}
-						try { oRun.SetBold(!!formatState.bold); } catch(e) {}
-						try { oRun.SetItalic(!!formatState.italic); } catch(e) {}
-						try { oRun.SetUnderline(!!formatState.underline); } catch(e) {}
-						try { oRun.SetStrikeout(!!formatState.strikeout); } catch(e) {}
-						try { oRun.SetDoubleStrikeout(!!formatState.doubleStrikeout); } catch(e) {}
-						try { oRun.SetSmallCaps(!!formatState.smallCaps); } catch(e) {}
-						try { oRun.SetCaps(!!formatState.caps); } catch(e) {}
-						try { oRun.SetSubscript(!!formatState.subscript); } catch(e) {}
-						try { oRun.SetSuperscript(!!formatState.superscript); } catch(e) {}
-						try { if (formatState.characterSpacing) oRun.SetSpacing(formatState.characterSpacing); } catch(e) {}
-						
-						if (formatState.highlight) {
-							try {
-								var hl = formatState.highlight.toLowerCase().trim();
-								if (hl === "none" || hl === "null" || hl === "default") oRun.SetHighlight("none");
-								else if (hl.indexOf("yellow") !== -1 || hl === "#ffff00") oRun.SetHighlight("yellow");
-								else if (hl.indexOf("green") !== -1 || hl === "#00ff00" || hl === "#008000") oRun.SetHighlight("green");
-								else if (hl.indexOf("blue") !== -1 || hl === "#0000ff") oRun.SetHighlight("blue");
-								else if (hl.indexOf("cyan") !== -1 || hl.indexOf("aqua") !== -1 || hl === "#00ffff") oRun.SetHighlight("cyan");
-								else if (hl.indexOf("red") !== -1 || hl === "#ff0000") oRun.SetHighlight("red");
-								else if (hl.indexOf("magenta") !== -1 || hl.indexOf("pink") !== -1 || hl === "#ff00ff") oRun.SetHighlight("magenta");
-								else if (hl.indexOf("gray") !== -1 || hl.indexOf("grey") !== -1 || hl === "#808080") oRun.SetHighlight("lightGray");
-								else oRun.SetHighlight(hl);
-							} catch(eHighlight) {}
-						}
-						
-						if (formatState.color) {
-							try {
-								var hex = String(formatState.color).replace('#', '').trim();
-								if (/^[0-9a-fA-F]{6}$/.test(hex)) {
-									var r = parseInt(hex.substring(0, 2), 16);
-									var g = parseInt(hex.substring(2, 4), 16);
-									var b = parseInt(hex.substring(4, 6), 16);
-									try { oRun.SetColor(Api.CreateColorFromRGB(r, g, b)); } catch(eColor) {
-										try { oRun.SetColor(r, g, b); } catch(errHex) {}
-									}
-								} else {
-									var namedColors = {
-										"red": [255, 0, 0], "green": [0, 128, 0], "blue": [0, 0, 255],
-										"yellow": [255, 255, 0], "black": [0, 0, 0], "white": [255, 255, 255],
-										"gray": [128, 128, 128], "purple": [128, 0, 128], "orange": [255, 165, 0]
-									};
-									if (namedColors[hex.toLowerCase()]) {
-										var rgb = namedColors[hex.toLowerCase()];
-										oRun.SetColor(Api.CreateColorFromRGB(rgb[0], rgb[1], rgb[2]));
-									}
-								}
-							} catch(eColorOuter) {}
-						}
+						applyFormatToRun(oRun, formatState);
 					}
 				}
 			}
