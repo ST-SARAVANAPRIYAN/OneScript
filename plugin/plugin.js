@@ -2725,7 +2725,10 @@ Example response: {"intent": "rewrite"}`;
 		} catch (e) {
 			log(`Intent routing error: ${e.message}. Defaulting to "rewrite".`, 'warning');
 		}
-		return INTENTS.RE	async function queryPlannerLLM(docData, prompt, intent, history = []) {
+		return INTENTS.REWRITE;
+	}
+
+	async function queryPlannerLLM(docData, prompt, intent, history = []) {
 		const ruleset = RULES[intent] || RULES.rewrite;
 		
 		var templatesContext = "";
